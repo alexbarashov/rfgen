@@ -1,6 +1,6 @@
 @echo off
 echo ====================================================
-echo AIS GMSK Plot (Realtime SDR + File mode)
+echo RF gen
 echo ====================================================
 
 REM Переходим в папку проекта
@@ -10,7 +10,7 @@ REM Включаем DEBUG логирование для отладки ново
 REM set BEACON_LOG=DEBUG
 
 echo.
-echo  Starting AIS GMSK plot...
+echo  Starting RF gen...
 python -m rfgen.ui_qt.app
 
 echo.

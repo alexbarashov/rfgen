@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Communication Language
+
+**IMPORTANT**: Always respond in **Russian language**. Generate commits, descriptions, and documentation in Russian unless explicitly requested otherwise.
+
+
+
 ## Обзор проекта
 
 **rfgen** — это кроссплатформенный универсальный RF-генератор для генерации непрерывных RF-сигналов для тестирования и разработки. Проект находится на ранней стадии разработки (каркас/прототип).
