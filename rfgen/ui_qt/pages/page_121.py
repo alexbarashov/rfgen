@@ -1,9 +1,15 @@
 """121.5 MHz Emergency Locator Beacon signal generator page."""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QPushButton,
-    QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QGroupBox, QLabel
+    QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QGroupBox, QLabel, QCheckBox,
+    QMessageBox, QFileDialog
 )
 from PySide6.QtCore import Qt
+from pathlib import Path
+import datetime
+
+from ...utils.paths import profiles_dir
+from ...utils.profile_io import validate_profile, apply_defaults, load_json, save_json
 
 
 class Page121(QWidget):
@@ -34,6 +40,36 @@ class Page121(QWidget):
         warning.setStyleSheet("color: red; background: #fff3cd; padding: 8px; border-radius: 4px;")
         warning.setWordWrap(True)
         root.addWidget(warning)
+
+        # Device group
+        dev_group = QGroupBox("Device")
+        dev_form = QFormLayout(dev_group)
+        self.combo_backend = QComboBox()
+        self.combo_backend.addItems(["fileout", "hackrf"])
+        self.fs_tx = QSpinBox()
+        self.fs_tx.setRange(200_000, 20_000_000)
+        self.fs_tx.setSingleStep(100_000)
+        self.fs_tx.setValue(2_000_000)
+        self.tx_gain_device = QSpinBox()
+        self.tx_gain_device.setRange(0, 60)
+        self.tx_gain_device.setValue(10)  # Low default for safety
+        self.pa_enable = QCheckBox("Enable PA")
+        dev_form.addRow("Backend", self.combo_backend)
+        dev_form.addRow("Fs TX (S/s)", self.fs_tx)
+        dev_form.addRow("TX Gain (dB)", self.tx_gain_device)
+        dev_form.addRow("", self.pa_enable)
+        root.addWidget(dev_group)
+
+        # Radio group
+        rf_group = QGroupBox("Radio")
+        rf_form = QFormLayout(rf_group)
+        self.target_hz_radio = QLineEdit("121500000")  # 121.5 MHz
+        self.if_offset_hz = QLineEdit("0")
+        self.freq_corr_hz = QLineEdit("0")
+        rf_form.addRow("Target (Hz)", self.target_hz_radio)
+        rf_form.addRow("IF offset (Hz)", self.if_offset_hz)
+        rf_form.addRow("Freq corr (Hz)", self.freq_corr_hz)
+        root.addWidget(rf_group)
 
         # Signal type
         sig_group = QGroupBox("Signal Configuration")
@@ -108,16 +144,6 @@ class Page121(QWidget):
         tx_group = QGroupBox("Transmission Settings")
         tx_layout = QFormLayout()
 
-        self.target_hz = QLineEdit("121500000")
-        self.target_hz.setEnabled(False)
-        tx_layout.addRow("Target Frequency (Hz):", self.target_hz)
-
-        self.tx_gain = QSpinBox()
-        self.tx_gain.setRange(0, 47)
-        self.tx_gain.setValue(10)  # Low default for safety
-        self.tx_gain.setSuffix(" dB")
-        tx_layout.addRow("TX Gain:", self.tx_gain)
-
         self.repeat_count = QSpinBox()
         self.repeat_count.setRange(1, 1000)
         self.repeat_count.setValue(1)
@@ -155,6 +181,23 @@ class Page121(QWidget):
         # Initialize UI state
         self._on_signal_type_changed(self.combo_signal_type.currentText())
 
+        # Auto-load default profile if exists
+        self._load_default_profile()
+
+    def _load_default_profile(self):
+        """Auto-load default.json profile if it exists on startup."""
+        default_path = profiles_dir() / "default.json"
+        if default_path.exists():
+            data = load_json(default_path)
+            if data:
+                # Check if profile matches this page's standard
+                if data.get("standard") != "121":
+                    return  # Wrong standard, skip loading
+                ok, msg = validate_profile(data)
+                if ok:
+                    self._apply_profile_to_form(data)
+                    # Silently load - no status message on startup
+
     def _on_signal_type_changed(self, text):
         """Enable/disable controls based on signal type."""
         is_sweep = "Swept" in text
@@ -179,10 +222,132 @@ class Page121(QWidget):
         self.btn_stop.setEnabled(False)
         self.status_label.setText("Stopped")
 
+    def _collect_profile(self):
+        """Collect current settings into profile dictionary."""
+        profile = {
+            "name": None,
+            "standard": "121",
+            "standard_params": {
+                "signal_type": self.combo_signal_type.currentText(),
+                "tone_hz": int(self.tone_hz.value()),
+                "sweep_rate": float(self.sweep_rate.value()),
+                "sweep_low": int(self.sweep_low.value()),
+                "sweep_high": int(self.sweep_high.value()),
+                "am_depth": float(self.am_depth.value()),
+                "duty_cycle": float(self.duty_cycle.value()),
+            },
+            "modulation": {
+                "type": "AM",
+            },
+            "pattern": {
+                "type": "121",
+            },
+            "schedule": {
+                "mode": "repeat",
+                "gap_s": 0.0,
+                "repeat": int(self.repeat_count.value()),
+            },
+            "device": {
+                "backend": self.combo_backend.currentText(),
+                "fs_tx": int(self.fs_tx.value()),
+                "tx_gain_db": int(self.tx_gain_device.value()),
+                "pa": bool(self.pa_enable.isChecked()),
+                "target_hz": int(self._safe_int(self.target_hz_radio.text(), 121500000)),
+                "if_offset_hz": int(self._safe_int(self.if_offset_hz.text(), 0)),
+                "freq_corr_hz": int(self._safe_int(self.freq_corr_hz.text(), 0)),
+            },
+            "_meta": {
+                "created_utc": datetime.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+            }
+        }
+        return profile
+
     def _save_profile(self):
-        """Save current settings as profile (placeholder)."""
-        self.status_label.setText("Save profile: not implemented yet")
+        """Save current settings as profile."""
+        prof = self._collect_profile()
+
+        default_path = str(profiles_dir() / "profile.json")
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Profile",
+            default_path,
+            "Profiles (*.json)"
+        )
+
+        if not file_path:
+            return
+
+        if not file_path.endswith('.json'):
+            file_path += '.json'
+
+        out_path = Path(file_path)
+        prof["name"] = out_path.stem
+
+        if not save_json(out_path, prof):
+            QMessageBox.critical(self, "Save failed", "Can't save profile")
+            return
+        self.status_label.setText(f"Profile saved: {out_path.name}")
 
     def _load_profile(self):
-        """Load profile from file (placeholder)."""
-        self.status_label.setText("Load profile: not implemented yet")
+        """Load profile from file."""
+        pdir = str(profiles_dir())
+        path, _ = QFileDialog.getOpenFileName(self, "Load Profile", pdir, "Profiles (*.json)")
+        if not path:
+            return
+
+        data = load_json(Path(path))
+        if not data:
+            QMessageBox.critical(self, "Load failed", "Can't read profile")
+            return
+
+        ok, msg = validate_profile(data)
+        if not ok:
+            QMessageBox.critical(self, "Invalid profile", msg)
+            return
+
+        self._apply_profile_to_form(data)
+        self.status_label.setText(f"Profile loaded: {Path(path).name}")
+
+    def _apply_profile_to_form(self, p):
+        """Map profile values to UI widgets."""
+        # Device
+        backend = str(p.get("device", {}).get("backend", "fileout"))
+        idx = self.combo_backend.findText(backend)
+        if idx >= 0:
+            self.combo_backend.setCurrentIndex(idx)
+
+        self.fs_tx.setValue(int(p.get("device", {}).get("fs_tx", 2_000_000)))
+        self.tx_gain_device.setValue(int(p.get("device", {}).get("tx_gain_db", 10)))
+        self.pa_enable.setChecked(bool(p.get("device", {}).get("pa", False)))
+        self.target_hz_radio.setText(str(int(p.get("device", {}).get("target_hz", 121500000))))
+        self.if_offset_hz.setText(str(int(p.get("device", {}).get("if_offset_hz", 0))))
+        self.freq_corr_hz.setText(str(int(p.get("device", {}).get("freq_corr_hz", 0))))
+
+        # Standard params
+        sp = p.get("standard_params", {})
+
+        # Signal type
+        signal_type = str(sp.get("signal_type", "Swept Tone (300-1600 Hz)"))
+        idx = self.combo_signal_type.findText(signal_type)
+        if idx >= 0:
+            self.combo_signal_type.setCurrentIndex(idx)
+
+        # Tone parameters
+        self.tone_hz.setValue(int(sp.get("tone_hz", 1000)))
+        self.sweep_rate.setValue(float(sp.get("sweep_rate", 2.0)))
+        self.sweep_low.setValue(int(sp.get("sweep_low", 300)))
+        self.sweep_high.setValue(int(sp.get("sweep_high", 1600)))
+
+        # Modulation parameters
+        self.am_depth.setValue(float(sp.get("am_depth", 0.8)))
+        self.duty_cycle.setValue(float(sp.get("duty_cycle", 1.0)))
+
+        # Schedule
+        self.repeat_count.setValue(int(p.get("schedule", {}).get("repeat", 1)))
+
+    @staticmethod
+    def _safe_int(text: str, default: int = 0) -> int:
+        try:
+            return int(str(text).strip())
+        except Exception:
+            return default
