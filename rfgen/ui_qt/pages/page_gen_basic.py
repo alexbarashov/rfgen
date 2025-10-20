@@ -5,14 +5,22 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from pathlib import Path
-import json, datetime
+import datetime
 
 from ...core.wave_engine import build_iq, build_cw
 from ...backends.fileout import FileOutBackend
 from ...backends.hackrf import HackRFTx
 from ...utils.paths import profiles_dir, out_dir
+from ...utils.profile_io import validate_profile, apply_defaults, load_json, save_json
 
-class PageQuick(QWidget):
+class PageGenBasic(QWidget):
+    """Basic signal generator page (formerly Quick TX).
+
+    Generates continuous test signals without protocol:
+    - CW/AM/FM/PM modulation
+    - Patterns: Tone, Sweep, Noise, FF00, F0F0, 3333, 5555
+    - Loop mode for continuous transmission
+    """
     def __init__(self, parent=None):
         super().__init__(parent)
         self._hrf = None  # HackRF process handle wrapper
@@ -172,10 +180,9 @@ class PageQuick(QWidget):
         # Extract profile name from filename (without extension)
         prof["name"] = out_path.stem
 
-        try:
-            out_path.write_text(json.dumps(prof, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception as e:
-            QMessageBox.critical(self, "Save failed", f"Can't save profile:\n{e}")
+        # Save using utils
+        if not save_json(out_path, prof):
+            QMessageBox.critical(self, "Save failed", "Can't save profile")
             return
         self._status(f"Profile saved: {out_path.name}")
 
@@ -183,22 +190,20 @@ class PageQuick(QWidget):
         """Auto-load default.json profile if it exists on startup."""
         default_path = profiles_dir() / "default.json"
         if default_path.exists():
-            try:
-                data = json.loads(default_path.read_text(encoding="utf-8"))
+            data = load_json(default_path)
+            if data:
                 ok, msg = self._validate_profile(data)
                 if ok:
                     self._apply_profile_to_form(data)
                     # Silently load - no status message on startup
-            except Exception:
-                pass  # Silently ignore errors in default profile
 
     def _load_profile_dialog(self):
         # Optional: migrate legacy profiles first
         try:
             from ...utils.migrate import migrate_legacy_profiles
-            moved = migrate_legacy_profiles()
-            if moved:
-                self._status(f"Migrated {moved} legacy profiles to rfgen/profiles")
+            result = migrate_legacy_profiles()
+            if result.get("migrated", 0) > 0:
+                self._status(f"Migrated {result['migrated']} legacy profiles to rfgen/profiles")
         except ImportError:
             pass  # migrate module doesn't exist yet, skip
 
@@ -209,10 +214,9 @@ class PageQuick(QWidget):
         self._load_profile(Path(path))
 
     def _load_profile(self, path: Path):
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-        except Exception as e:
-            QMessageBox.critical(self, "Load failed", f"Can't read profile:\n{e}")
+        data = load_json(path)
+        if not data:
+            QMessageBox.critical(self, "Load failed", "Can't read profile")
             return
         ok, msg = self._validate_profile(data)
         if not ok:
@@ -222,88 +226,8 @@ class PageQuick(QWidget):
         self._status(f"Profile loaded: {path.name}")
 
     def _validate_profile(self, p: dict):
-        """Validate profile structure and values."""
-        # Check required top-level keys
-        for key in ("device", "modulation", "pattern", "schedule"):
-            if key not in p:
-                return False, f"Missing top-level '{key}'"
-
-        # Validate device.backend
-        if p["device"].get("backend") not in ("hackrf", "fileout"):
-            return False, "device.backend must be 'hackrf' or 'fileout'"
-
-        # Validate modulation.type
-        if p["modulation"].get("type") not in ("None", "AM", "FM", "PM"):
-            return False, "modulation.type must be None/AM/FM/PM"
-
-        # Validate numeric fields
-        try:
-            fs = int(p["device"].get("fs_tx", 0))
-            if fs <= 0:
-                return False, "device.fs_tx must be >0"
-        except (ValueError, TypeError):
-            return False, "device.fs_tx must be int"
-
-        try:
-            tx_gain = int(p["device"].get("tx_gain_db", 30))
-            if tx_gain < 0 or tx_gain > 60:
-                return False, "device.tx_gain_db must be in range 0-60"
-        except (ValueError, TypeError):
-            return False, "device.tx_gain_db must be int"
-
-        # Validate modulation parameters
-        try:
-            dev = int(p["modulation"].get("deviation_hz", 5000))
-            if dev < 0:
-                return False, "modulation.deviation_hz must be >=0"
-        except (ValueError, TypeError):
-            return False, "modulation.deviation_hz must be int"
-
-        try:
-            pm_idx = float(p["modulation"].get("pm_index", 1.0))
-            if pm_idx < 0 or pm_idx > 10:
-                return False, "modulation.pm_index must be in range 0-10"
-        except (ValueError, TypeError):
-            return False, "modulation.pm_index must be float"
-
-        try:
-            am_depth = float(p["modulation"].get("am_depth", 0.5))
-            if am_depth < 0 or am_depth > 1:
-                return False, "modulation.am_depth must be in range 0-1"
-        except (ValueError, TypeError):
-            return False, "modulation.am_depth must be float"
-
-        # Validate pattern fields
-        try:
-            tone = int(p["pattern"].get("tone_hz", 1000))
-            if tone < 1:
-                return False, "pattern.tone_hz must be >0"
-        except (ValueError, TypeError):
-            return False, "pattern.tone_hz must be int"
-
-        try:
-            bitrate = int(p["pattern"].get("bitrate_bps", 9600))
-            if bitrate < 10:
-                return False, "pattern.bitrate_bps must be >=10"
-        except (ValueError, TypeError):
-            return False, "pattern.bitrate_bps must be int"
-
-        # Validate schedule fields
-        try:
-            repeat = int(p["schedule"].get("repeat", 1))
-            if repeat < 1:
-                return False, "schedule.repeat must be >=1"
-        except (ValueError, TypeError):
-            return False, "schedule.repeat must be int"
-
-        try:
-            gap = float(p["schedule"].get("gap_s", 0.0))
-            if gap < 0:
-                return False, "schedule.gap_s must be >=0"
-        except (ValueError, TypeError):
-            return False, "schedule.gap_s must be float"
-
-        return True, ""
+        """Validate profile structure and values (delegates to utils/profile_io)."""
+        return validate_profile(p)
 
     def _apply_profile_to_form(self, p):
         """Map profile values to UI widgets."""

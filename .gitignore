@@ -21,6 +21,7 @@ build/
 captures/
 *.iq
 *.cf32
+*.sc8
 *.f32
 *.bin
 *.wav
