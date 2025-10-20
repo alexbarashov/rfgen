@@ -1,0 +1,10 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rfgen"
+version = "0.0.0"
+description = "Universal RF generator (skeleton)"
+authors = [{name="Your Name"}]
+requires-python = ">=3.9"

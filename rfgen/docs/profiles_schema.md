@@ -1,0 +1,1 @@
+# Profiles JSON Schema (placeholder)
