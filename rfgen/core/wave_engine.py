@@ -208,6 +208,15 @@ def build_iq(profile: dict, frame_s: float = 1.0):
     if standard in ("c406", "psk406"):
         return build_psk406(profile)
 
+    # 121.5 MHz AM: специальная обработка (как PSK-406 по расписанию/loop)
+    if standard == "121":
+        # импорт локально, чтобы избежать циклов импортов
+        from ..standards.am_121p5 import generate_121p5
+        # передаём длительность кадра «мягко» через служебное поле
+        prof = dict(profile)
+        prof["_frame_s"] = frame_s
+        return generate_121p5(prof)
+
     # Базовая генерация (basic, ais, dsc_vhf, и т.д.)
     fs = int(profile["device"]["fs_tx"])
     pat = profile["pattern"]["type"]
