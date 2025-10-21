@@ -291,7 +291,8 @@ class PageGenBasic(QWidget):
         if backend == "hackrf":
             self._hrf = HackRFTx()
             try:
-                self._hrf.run_loop(iq_path, fs_tx=fs, center_hz=center, tx_gain_db=tx_gain)
+                pa_enabled = self.pa_enable.isChecked()
+                self._hrf.run_loop(iq_path, fs_tx=fs, center_hz=center, tx_gain_db=tx_gain, pa_enabled=pa_enabled)
             except Exception as e:
                 QMessageBox.critical(self, "HackRF start failed",
                                      f"Failed to start hackrf_transfer.\n{e}\n"

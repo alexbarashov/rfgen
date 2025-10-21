@@ -567,11 +567,13 @@ class Page406(QWidget):
             self.update()
 
             hackrf = HackRFTx()
+            pa_enabled = self.pa_enable.isChecked()
             hackrf.run_loop(
                 iq_path=temp_path,
                 fs_tx=prof["device"]["fs_tx"],
                 center_hz=int(center_hz),
-                tx_gain_db=prof["device"]["tx_gain_db"]
+                tx_gain_db=prof["device"]["tx_gain_db"],
+                pa_enabled=pa_enabled
             )
 
             self.btn_start.setEnabled(False)
