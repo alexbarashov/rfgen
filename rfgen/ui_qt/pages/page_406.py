@@ -115,6 +115,15 @@ class Page406(QWidget):
         self.lon = QLineEdit("0.0")
         form_layout.addRow("Longitude:", self.lon)
 
+        # Encoding Settings (Message Builder only)
+        self.combo_fec = QComboBox()
+        self.combo_fec.addItems(["BCH (Long)", "BCH (Short)", "None (Test)"])
+        form_layout.addRow("FEC:", self.combo_fec)
+
+        self.interleave = QCheckBox("Enable Interleaving")
+        self.interleave.setChecked(True)
+        form_layout.addRow("Interleaving:", self.interleave)
+
         # Direct HEX field (enabled by default)
         self.hex_message = QLineEdit("FFFED080020000007FDFFB0020B783E0F66C")
         self.hex_message.setPlaceholderText("Raw hex message data")
@@ -155,21 +164,6 @@ class Page406(QWidget):
 
         psk_group.setLayout(psk_layout)
         root.addWidget(psk_group)
-
-        # Encoding settings
-        enc_group = QGroupBox("Encoding Settings")
-        enc_layout = QFormLayout()
-
-        self.combo_fec = QComboBox()
-        self.combo_fec.addItems(["BCH (Long)", "BCH (Short)", "None (Test)"])
-        enc_layout.addRow("FEC:", self.combo_fec)
-
-        self.interleave = QCheckBox("Enable Interleaving")
-        self.interleave.setChecked(True)
-        enc_layout.addRow("", self.interleave)
-
-        enc_group.setLayout(enc_layout)
-        root.addWidget(enc_group)
 
         # TX settings
         tx_group = QGroupBox("Transmission Settings")
@@ -237,6 +231,10 @@ class Page406(QWidget):
         self.beacon_id.setEnabled(not is_hex_mode)
         self.lat.setEnabled(not is_hex_mode)
         self.lon.setEnabled(not is_hex_mode)
+
+        # Encoding settings only for Message Builder
+        self.combo_fec.setEnabled(not is_hex_mode)
+        self.interleave.setEnabled(not is_hex_mode)
 
         # Trigger autosave when mode changes
         self._autosave_to_default()
