@@ -494,6 +494,7 @@ class Page406(QWidget):
         """Generate and save to file."""
         from ...standards.psk406 import generate_psk406
         from ...utils.paths import profiles_dir
+        from ...utils.cf32_naming import generate_cf32_name
         import numpy as np
 
         try:
@@ -503,9 +504,13 @@ class Page406(QWidget):
 
             iq = generate_psk406(prof)
 
+            # Generate default filename with Fs (convention: iq_<FSk>_<name>.cf32)
+            fs_tx = prof["device"]["fs_tx"]
+            default_filename = generate_cf32_name(fs_tx, "psk406")
+            default_path = str(profiles_dir() / default_filename)
+
             # Save to file
             from PySide6.QtWidgets import QFileDialog
-            default_path = str(profiles_dir() / "psk406_output.cf32")
             file_path, _ = QFileDialog.getSaveFileName(
                 self, "Save IQ File", default_path, "cf32 Files (*.cf32);;All Files (*.*)")
 
@@ -530,7 +535,8 @@ class Page406(QWidget):
         """Generate and transmit via HackRF."""
         from ...standards.psk406 import generate_psk406
         from ...backends.hackrf import HackRFTx
-        from ...utils.paths import profiles_dir
+        from ...utils.paths import profiles_dir, out_dir
+        from ...utils.cf32_naming import generate_cf32_name
         import numpy as np
 
         try:
@@ -540,8 +546,10 @@ class Page406(QWidget):
 
             iq = generate_psk406(prof)
 
-            # Save to temp file
-            temp_path = profiles_dir() / "temp_psk406.cf32"
+            # Save to temp file (following naming convention)
+            fs_tx = prof["device"]["fs_tx"]
+            temp_filename = generate_cf32_name(fs_tx, "temp_psk406", add_timestamp=False)
+            temp_path = out_dir() / temp_filename
             inter = np.empty(iq.size * 2, dtype=np.float32)
             inter[0::2] = iq.real.astype(np.float32, copy=False)
             inter[1::2] = iq.imag.astype(np.float32, copy=False)
