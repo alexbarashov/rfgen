@@ -116,8 +116,8 @@ class PageAIS(QWidget):
         form_layout.addRow("Payload:", self.payload_input)
 
         # Direct HEX field (enabled by default)
-        self.hex_message = QLineEdit("")
-        self.hex_message.setPlaceholderText("Raw AIS hex payload (e.g., 15MwkT0P...)")
+        self.hex_message = QLineEdit("24e98f59effffff33c8d603412140e10f002010384ab70")
+        self.hex_message.setPlaceholderText("Raw AIS hex payload")
         form_layout.addRow("HEX Message:", self.hex_message)
 
         msg_layout.addLayout(form_layout)
