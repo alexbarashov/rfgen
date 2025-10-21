@@ -114,11 +114,6 @@ class Page121(QWidget):
         sig_group.setLayout(sig_layout)
         root.addWidget(sig_group)
 
-        # Connect mode change signal
-        self.radio_hex.toggled.connect(self._on_mode_changed)
-        self.radio_builder.toggled.connect(self._on_mode_changed)
-        self._on_mode_changed()  # Set initial field states
-
         # Tone parameters
         tone_group = QGroupBox("Tone Parameters")
         tone_layout = QFormLayout()
@@ -248,6 +243,11 @@ class Page121(QWidget):
 
         # Initialize UI state
         self._on_signal_type_changed(self.combo_signal_type.currentText())
+
+        # Connect mode change signals and set initial state
+        self.radio_hex.toggled.connect(self._on_mode_changed)
+        self.radio_builder.toggled.connect(self._on_mode_changed)
+        self._on_mode_changed()  # Set initial field states
 
         # Auto-load default profile if exists
         self._load_default_profile()
