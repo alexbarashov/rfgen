@@ -238,6 +238,9 @@ class PageNAVTEX(QWidget):
         scroll.setWidget(content)
         main_layout.addWidget(scroll)
 
+        # Backend instance
+        self._hackrf_backend = None
+
         # Auto-load default profile if exists
         self._load_default_profile()
 
@@ -300,16 +303,190 @@ class PageNAVTEX(QWidget):
                 self.status_label.setText(f"Import failed: {e}")
 
     def _start_tx(self):
-        """Start NAVTEX transmission (placeholder)."""
-        self.btn_start.setEnabled(False)
-        self.btn_stop.setEnabled(True)
-        self.status_label.setText("NAVTEX transmission started (placeholder)")
+        """Start NAVTEX transmission."""
+        # Collect profile
+        try:
+            prof = self._collect_profile()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to collect profile: {e}")
+            return
+
+        backend = prof["device"]["backend"]
+
+        if backend == "fileout":
+            self._start_fileout(prof)
+        elif backend == "hackrf":
+            self._start_hackrf(prof)
+        else:
+            QMessageBox.warning(self, "Error", f"Unknown backend: {backend}")
+
+    def _start_fileout(self, prof):
+        """Generate and save NAVTEX signal to file."""
+        from ...core.wave_engine import build_iq
+        from ...utils.paths import profiles_dir
+        from ...utils.cf32_naming import generate_cf32_name
+        import numpy as np
+
+        try:
+            # Generate IQ
+            self.status_label.setText("Generating NAVTEX signal...")
+            self.update()
+
+            iq = build_iq(prof, frame_s=1.0)
+
+            # Generate default filename with Fs (convention: iq_<FSk>_navtex.cf32)
+            fs_tx = prof["device"]["fs_tx"]
+            default_filename = generate_cf32_name(fs_tx, "navtex")
+            default_path = str(profiles_dir() / default_filename)
+
+            # Save to file
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, "Save IQ File", default_path, "cf32 Files (*.cf32);;All Files (*.*)")
+
+            if not file_path:
+                self.status_label.setText("Cancelled")
+                return
+
+            # Write interleaved float32 I,Q
+            inter = np.empty(iq.size * 2, dtype=np.float32)
+            inter[0::2] = iq.real.astype(np.float32, copy=False)
+            inter[1::2] = iq.imag.astype(np.float32, copy=False)
+            with open(file_path, "wb") as f:
+                inter.tofile(f)
+
+            self.status_label.setText(f"Saved: {Path(file_path).name}")
+            QMessageBox.information(self, "Success", f"IQ file saved to:\n{file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Generation Failed", str(e))
+            self.status_label.setText(f"Error: {e}")
+
+    def _start_hackrf(self, prof):
+        """Generate and transmit NAVTEX via HackRF."""
+        from ...core.wave_engine import build_iq
+        from ...backends.hackrf import HackRFTx
+        from ...utils.paths import out_dir, logs_dir
+        from ...utils.cf32_naming import generate_cf32_name
+        import numpy as np
+
+        try:
+            # Generate IQ
+            self.status_label.setText("Generating NAVTEX signal...")
+            self.update()
+
+            # 1. Generate baseband IQ
+            iq_baseband = build_iq(prof, frame_s=1.0)
+
+            # 2. Resample if needed (from baseband to TX sample rate)
+            fs_tx = prof["device"]["fs_tx"]
+            iq_tx = iq_baseband
+
+            # 3. Apply IF shift and freq correction (handled by HackRF backend)
+            # Backend will apply digital shift automatically
+
+            # 4. Handle schedule mode
+            schedule = prof.get("schedule", {})
+            mode = schedule.get("mode", "loop")
+            gap_s = float(schedule.get("gap_s", 8.0))
+            repeat_count = int(schedule.get("repeat", 5))
+
+            if mode == "repeat":
+                # Create gap (zeros)
+                gap_samples = int(fs_tx * gap_s)
+                gap = np.zeros(gap_samples, dtype=np.complex64)
+
+                # Concatenate frame + gap, repeated N times
+                iq_tx = np.tile(np.concatenate([iq_tx, gap]), repeat_count)
+            elif mode == "loop":
+                # Gap already included in iq_baseband by generator
+                # repeat_count will be handled by -R flag (infinite loop)
+                repeat_count = 0  # 0 = infinite loop
+
+            # 5. Save to temporary file
+            temp_filename = generate_cf32_name(fs_tx, "temp_navtex", add_timestamp=False)
+            temp_path = out_dir() / temp_filename
+
+            # Write interleaved float32 I,Q
+            inter = np.empty(iq_tx.size * 2, dtype=np.float32)
+            inter[0::2] = iq_tx.real.astype(np.float32, copy=False)
+            inter[1::2] = iq_tx.imag.astype(np.float32, copy=False)
+            with open(temp_path, "wb") as f:
+                inter.tofile(f)
+
+            # 6. Start HackRF
+            self.status_label.setText("Starting HackRF transmission...")
+            self.update()
+
+            # Calculate center frequency (invariant: RF = target)
+            target_hz = prof["device"]["target_hz"]
+            if_offset_hz = prof["device"]["if_offset_hz"]
+            freq_corr_hz = prof["device"]["freq_corr_hz"]
+            center_hz = target_hz + if_offset_hz + freq_corr_hz
+
+            tx_gain_db = prof["device"]["tx_gain_db"]
+            pa_enable = prof["device"]["pa"]
+
+            # Create HackRF backend
+            self._hackrf_backend = HackRFTx()
+
+            # Run transmission
+            if mode == "loop":
+                # Loop mode: use -R flag for infinite repeat
+                self._hackrf_backend.run_loop(
+                    str(temp_path),
+                    fs_tx,
+                    center_hz,
+                    tx_gain_db,
+                    pa_enable=pa_enable,
+                    if_offset_hz=if_offset_hz,
+                    freq_corr_hz=freq_corr_hz
+                )
+            else:
+                # Repeat mode: file already contains N repetitions
+                self._hackrf_backend.run_loop(
+                    str(temp_path),
+                    fs_tx,
+                    center_hz,
+                    tx_gain_db,
+                    pa_enable=pa_enable,
+                    if_offset_hz=if_offset_hz,
+                    freq_corr_hz=freq_corr_hz
+                )
+
+            # Update UI
+            self.btn_start.setEnabled(False)
+            self.btn_stop.setEnabled(True)
+            self.btn_save.setEnabled(False)
+            self.btn_load.setEnabled(False)
+
+            self.status_label.setText(
+                f"TX: {target_hz/1e3:.1f} kHz, Fs={fs_tx/1e6:.1f} MS/s, "
+                f"Gain={tx_gain_db} dB {'PA' if pa_enable else ''}"
+            )
+
+        except Exception as e:
+            QMessageBox.critical(self, "Transmission Failed", str(e))
+            self.status_label.setText(f"Error: {e}")
 
     def _stop_tx(self):
-        """Stop transmission (placeholder)."""
+        """Stop NAVTEX transmission."""
+        if hasattr(self, '_hackrf_backend') and self._hackrf_backend:
+            try:
+                self.status_label.setText("Stopping HackRF...")
+                self.update()
+
+                self._hackrf_backend.stop()
+
+                self.status_label.setText("Stopped")
+            except Exception as e:
+                self.status_label.setText(f"Stop error: {e}")
+            finally:
+                self._hackrf_backend = None
+
+        # Restore buttons
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
-        self.status_label.setText("Stopped")
+        self.btn_save.setEnabled(True)
+        self.btn_load.setEnabled(True)
 
     def _collect_profile(self):
         """Collect current settings into profile dictionary."""

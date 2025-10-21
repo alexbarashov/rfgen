@@ -217,6 +217,12 @@ def build_iq(profile: dict, frame_s: float = 1.0):
         prof["_frame_s"] = frame_s
         return generate_121p5(prof)
 
+    # NAVTEX: специальная обработка (FSK SITOR-B)
+    if standard == "navtex":
+        # импорт локально, чтобы избежать циклов импортов
+        from ..standards.navtex import build_navtex
+        return build_navtex(profile)
+
     # Базовая генерация (basic, ais, dsc_vhf, и т.д.)
     fs = int(profile["device"]["fs_tx"])
     pat = profile["pattern"]["type"]
