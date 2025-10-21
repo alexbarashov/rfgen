@@ -1,7 +1,7 @@
 """AIS (Automatic Identification System) signal generator page."""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QPushButton,
-    QComboBox, QLineEdit, QSpinBox, QGroupBox, QLabel, QTextEdit, QCheckBox,
+    QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QGroupBox, QLabel, QTextEdit, QCheckBox,
     QMessageBox, QFileDialog, QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Qt
@@ -132,13 +132,44 @@ class PageAIS(QWidget):
 
         # TX settings
         tx_group = QGroupBox("Transmission Settings")
-        tx_layout = QFormLayout()
+        tx_layout = QVBoxLayout()
 
-        self.repeat_count = QSpinBox()
-        self.repeat_count.setRange(1, 1000)
-        self.repeat_count.setValue(1)
-        tx_layout.addRow("Repeat Count:", self.repeat_count)
+        # Mode selection (Loop vs Finite)
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("Mode:")
+        self.radio_loop = QRadioButton("Loop (endless)")
+        self.radio_finite = QRadioButton("Finite (N frames)")
+        self.radio_loop.setChecked(True)  # Default: Loop
 
+        self.tx_mode_group = QButtonGroup(self)
+        self.tx_mode_group.addButton(self.radio_loop, 0)
+        self.tx_mode_group.addButton(self.radio_finite, 1)
+
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.radio_loop)
+        mode_layout.addWidget(self.radio_finite)
+        mode_layout.addStretch()
+        tx_layout.addLayout(mode_layout)
+
+        # Form fields
+        tx_form = QFormLayout()
+
+        # Frame count (only for Finite mode)
+        self.frame_count = QSpinBox()
+        self.frame_count.setRange(1, 10000)
+        self.frame_count.setValue(5)
+        tx_form.addRow("Frame Count:", self.frame_count)
+
+        # Gap between frames
+        self.gap_s = QDoubleSpinBox()
+        self.gap_s.setRange(0.0, 60.0)
+        self.gap_s.setSingleStep(0.1)
+        self.gap_s.setDecimals(1)
+        self.gap_s.setValue(8.0)
+        self.gap_s.setSuffix(" s")
+        tx_form.addRow("Gap between frames:", self.gap_s)
+
+        tx_layout.addLayout(tx_form)
         tx_group.setLayout(tx_layout)
         root.addWidget(tx_group)
 
@@ -170,6 +201,17 @@ class PageAIS(QWidget):
 
         # Auto-load default profile if exists
         self._load_default_profile()
+
+        # Connect TX mode switch
+        self.radio_loop.toggled.connect(self._on_tx_mode_changed)
+        self.radio_finite.toggled.connect(self._on_tx_mode_changed)
+        self._on_tx_mode_changed()  # Set initial TX field states
+
+    def _on_tx_mode_changed(self):
+        """Handle TX mode switching between Loop and Finite."""
+        is_finite = self.radio_finite.isChecked()
+        # Frame count only enabled in Finite mode
+        self.frame_count.setEnabled(is_finite)
 
     def _load_default_profile(self):
         """Auto-load default.json profile if it exists on startup."""
@@ -223,9 +265,9 @@ class PageAIS(QWidget):
                 "type": "AIS",
             },
             "schedule": {
-                "mode": "repeat",
-                "gap_s": 0.0,
-                "repeat": int(self.repeat_count.value()),
+                "mode": "loop" if self.radio_loop.isChecked() else "repeat",
+                "gap_s": float(self.gap_s.value()),
+                "repeat": int(self.frame_count.value()),
             },
             "device": {
                 "backend": self.combo_backend.currentText(),
@@ -331,7 +373,16 @@ class PageAIS(QWidget):
         # Mode change will be handled by _on_mode_changed() signal
 
         # Schedule
-        self.repeat_count.setValue(int(p.get("schedule", {}).get("repeat", 1)))
+        schedule = p.get("schedule", {})
+        mode = str(schedule.get("mode", "loop"))
+        if mode == "loop":
+            self.radio_loop.setChecked(True)
+        else:
+            self.radio_finite.setChecked(True)
+        # TX mode change will be handled by _on_tx_mode_changed() signal
+
+        self.frame_count.setValue(int(schedule.get("repeat", 5)))
+        self.gap_s.setValue(float(schedule.get("gap_s", 8.0)))
 
     def _start_tx(self):
         """Start AIS transmission (placeholder)."""
