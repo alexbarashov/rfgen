@@ -1,8 +1,8 @@
 """DSC HF (Digital Selective Calling) signal generator page."""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QPushButton,
-    QComboBox, QLineEdit, QSpinBox, QGroupBox, QLabel, QCheckBox,
-    QMessageBox, QFileDialog
+    QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QGroupBox, QLabel, QCheckBox,
+    QMessageBox, QFileDialog, QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Qt
 from pathlib import Path
@@ -102,23 +102,124 @@ class PageDSC_HF(QWidget):
         ])
         call_layout.addRow("Call Type:", self.combo_type)
 
-        self.mmsi = QLineEdit("123456789")
-        call_layout.addRow("MMSI:", self.mmsi)
+        self.mmsi_from = QLineEdit("123456789")
+        call_layout.addRow("MMSI (From):", self.mmsi_from)
+
+        self.mmsi_to = QLineEdit("987654321")
+        call_layout.addRow("MMSI (To):", self.mmsi_to)
 
         call_group.setLayout(call_layout)
         root.addWidget(call_group)
 
+        # Message configuration
+        msg_group = QGroupBox("Message Details")
+        msg_layout = QVBoxLayout()
+
+        # Mode selection (Radio buttons)
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("Input Mode:")
+        self.radio_hex = QRadioButton("Direct HEX")
+        self.radio_builder = QRadioButton("Message Builder")
+        self.radio_hex.setChecked(True)  # Default: Direct HEX
+
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.addButton(self.radio_hex, 0)
+        self.mode_group.addButton(self.radio_builder, 1)
+
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.radio_hex)
+        mode_layout.addWidget(self.radio_builder)
+        mode_layout.addStretch()
+        msg_layout.addLayout(mode_layout)
+
+        # Form fields
+        form_layout = QFormLayout()
+
+        # Message Builder fields (disabled by default)
+        self.combo_nature = QComboBox()
+        self.combo_nature.addItems([
+            "Fire/Explosion",
+            "Flooding",
+            "Collision",
+            "Grounding",
+            "Listing",
+            "Sinking",
+            "Disabled and Adrift",
+            "Undesignated",
+            "Abandoning Ship",
+            "Piracy/Armed Robbery",
+            "Man Overboard"
+        ])
+        form_layout.addRow("Nature of Distress:", self.combo_nature)
+
+        self.position = QLineEdit("0000.00N/00000.00E")
+        form_layout.addRow("Position:", self.position)
+
+        self.utc_time = QLineEdit("0000")
+        form_layout.addRow("UTC Time (HHMM):", self.utc_time)
+
+        # Direct HEX field (enabled by default)
+        self.hex_message = QLineEdit("")
+        self.hex_message.setPlaceholderText("Raw DSC hex payload")
+        form_layout.addRow("HEX Message:", self.hex_message)
+
+        msg_layout.addLayout(form_layout)
+
+        msg_group.setLayout(msg_layout)
+        root.addWidget(msg_group)
+
+        # Connect mode change signal
+        self.radio_hex.toggled.connect(self._on_mode_changed)
+        self.radio_builder.toggled.connect(self._on_mode_changed)
+        self._on_mode_changed()  # Set initial field states
+
         # TX settings
         tx_group = QGroupBox("Transmission Settings")
-        tx_layout = QFormLayout()
+        tx_layout = QVBoxLayout()
 
-        self.repeat_count = QSpinBox()
-        self.repeat_count.setRange(1, 10)
-        self.repeat_count.setValue(1)
-        tx_layout.addRow("Repeat Count:", self.repeat_count)
+        # Mode selection (Loop vs Finite)
+        tx_mode_layout = QHBoxLayout()
+        tx_mode_label = QLabel("Mode:")
+        self.radio_loop = QRadioButton("Loop (endless)")
+        self.radio_finite = QRadioButton("Finite (N frames)")
+        self.radio_loop.setChecked(True)  # Default: Loop
 
+        self.tx_mode_group = QButtonGroup(self)
+        self.tx_mode_group.addButton(self.radio_loop, 0)
+        self.tx_mode_group.addButton(self.radio_finite, 1)
+
+        tx_mode_layout.addWidget(tx_mode_label)
+        tx_mode_layout.addWidget(self.radio_loop)
+        tx_mode_layout.addWidget(self.radio_finite)
+        tx_mode_layout.addStretch()
+        tx_layout.addLayout(tx_mode_layout)
+
+        # Form fields
+        tx_form = QFormLayout()
+
+        # Frame count (only for Finite mode)
+        self.frame_count = QSpinBox()
+        self.frame_count.setRange(1, 10000)
+        self.frame_count.setValue(5)
+        tx_form.addRow("Frame Count:", self.frame_count)
+
+        # Gap between frames
+        self.gap_s = QDoubleSpinBox()
+        self.gap_s.setRange(0.0, 60.0)
+        self.gap_s.setSingleStep(0.1)
+        self.gap_s.setDecimals(1)
+        self.gap_s.setValue(8.0)
+        self.gap_s.setSuffix(" s")
+        tx_form.addRow("Gap between frames:", self.gap_s)
+
+        tx_layout.addLayout(tx_form)
         tx_group.setLayout(tx_layout)
         root.addWidget(tx_group)
+
+        # Connect TX mode switch
+        self.radio_loop.toggled.connect(self._on_tx_mode_changed)
+        self.radio_finite.toggled.connect(self._on_tx_mode_changed)
+        self._on_tx_mode_changed()  # Set initial TX field states
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -148,6 +249,23 @@ class PageDSC_HF(QWidget):
 
         # Auto-load default profile if exists
         self._load_default_profile()
+
+    def _on_mode_changed(self):
+        """Handle mode switching between Direct HEX and Message Builder."""
+        is_hex_mode = self.radio_hex.isChecked()
+
+        # Direct HEX mode: enable hex_message, disable builder fields
+        # Message Builder mode: disable hex_message, enable builder fields
+        self.hex_message.setEnabled(is_hex_mode)
+        self.combo_nature.setEnabled(not is_hex_mode)
+        self.position.setEnabled(not is_hex_mode)
+        self.utc_time.setEnabled(not is_hex_mode)
+
+    def _on_tx_mode_changed(self):
+        """Handle TX mode switching between Loop and Finite."""
+        is_finite = self.radio_finite.isChecked()
+        # Frame count only enabled in Finite mode
+        self.frame_count.setEnabled(is_finite)
 
     def _load_default_profile(self):
         """Auto-load default.json profile if it exists on startup."""
@@ -197,10 +315,16 @@ class PageDSC_HF(QWidget):
             "name": None,
             "standard": "dsc_hf",
             "standard_params": {
+                "input_mode": "hex" if self.radio_hex.isChecked() else "builder",
                 "frequency": self.combo_freq.currentText(),
                 "category": self.combo_category.currentText(),
                 "call_type": self.combo_type.currentText(),
-                "mmsi": self.mmsi.text(),
+                "mmsi_from": self.mmsi_from.text(),
+                "mmsi_to": self.mmsi_to.text(),
+                "nature": self.combo_nature.currentText(),
+                "position": self.position.text(),
+                "utc_time": self.utc_time.text(),
+                "hex_message": self.hex_message.text(),
             },
             "modulation": {
                 "type": "FSK",
@@ -209,9 +333,9 @@ class PageDSC_HF(QWidget):
                 "type": "DSC_HF",
             },
             "schedule": {
-                "mode": "repeat",
-                "gap_s": 0.0,
-                "repeat": int(self.repeat_count.value()),
+                "mode": "loop" if self.radio_loop.isChecked() else "repeat",
+                "gap_s": float(self.gap_s.value()),
+                "repeat": int(self.frame_count.value()),
             },
             "device": {
                 "backend": self.combo_backend.currentText(),
@@ -311,10 +435,41 @@ class PageDSC_HF(QWidget):
             self.combo_type.setCurrentIndex(idx)
 
         # MMSI
-        self.mmsi.setText(str(sp.get("mmsi", "123456789")))
+        self.mmsi_from.setText(str(sp.get("mmsi_from", "123456789")))
+        self.mmsi_to.setText(str(sp.get("mmsi_to", "987654321")))
+
+        # Nature of distress
+        nature = str(sp.get("nature", "Fire/Explosion"))
+        idx = self.combo_nature.findText(nature)
+        if idx >= 0:
+            self.combo_nature.setCurrentIndex(idx)
+
+        # Position and time
+        self.position.setText(str(sp.get("position", "0000.00N/00000.00E")))
+        self.utc_time.setText(str(sp.get("utc_time", "0000")))
+
+        # HEX message
+        self.hex_message.setText(str(sp.get("hex_message", "")))
+
+        # Input mode (hex or builder)
+        input_mode = str(sp.get("input_mode", "hex"))
+        if input_mode == "hex":
+            self.radio_hex.setChecked(True)
+        else:
+            self.radio_builder.setChecked(True)
+        # Mode change will be handled by _on_mode_changed() signal
 
         # Schedule
-        self.repeat_count.setValue(int(p.get("schedule", {}).get("repeat", 1)))
+        schedule = p.get("schedule", {})
+        mode = str(schedule.get("mode", "loop"))
+        if mode == "loop":
+            self.radio_loop.setChecked(True)
+        else:
+            self.radio_finite.setChecked(True)
+        # TX mode change will be handled by _on_tx_mode_changed() signal
+
+        self.frame_count.setValue(int(schedule.get("repeat", 5)))
+        self.gap_s.setValue(float(schedule.get("gap_s", 8.0)))
 
     @staticmethod
     def _safe_int(text: str, default: int = 0) -> int:

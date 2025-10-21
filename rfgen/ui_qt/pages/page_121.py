@@ -2,7 +2,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QPushButton,
     QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QGroupBox, QLabel, QCheckBox,
-    QMessageBox, QFileDialog
+    QMessageBox, QFileDialog, QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Qt
 from pathlib import Path
@@ -71,21 +71,53 @@ class Page121(QWidget):
         rf_form.addRow("Freq corr (Hz)", self.freq_corr_hz)
         root.addWidget(rf_group)
 
-        # Signal type
+        # Signal configuration
         sig_group = QGroupBox("Signal Configuration")
-        sig_layout = QFormLayout()
+        sig_layout = QVBoxLayout()
 
+        # Mode selection (Radio buttons)
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("Input Mode:")
+        self.radio_hex = QRadioButton("Direct HEX")
+        self.radio_builder = QRadioButton("Message Builder")
+        self.radio_builder.setChecked(True)  # Default: Message Builder
+
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.addButton(self.radio_hex, 0)
+        self.mode_group.addButton(self.radio_builder, 1)
+
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.radio_hex)
+        mode_layout.addWidget(self.radio_builder)
+        mode_layout.addStretch()
+        sig_layout.addLayout(mode_layout)
+
+        # Form fields
+        form_layout = QFormLayout()
+
+        # Direct HEX field (disabled by default)
+        self.hex_message = QLineEdit("")
+        self.hex_message.setPlaceholderText("Raw signal hex payload")
+        form_layout.addRow("HEX Message:", self.hex_message)
+
+        # Message Builder fields (enabled by default)
         self.combo_signal_type = QComboBox()
         self.combo_signal_type.addItems([
             "Swept Tone (300-1600 Hz)",
             "Continuous Tone",
             "Modulated Carrier (CW)"
         ])
-        sig_layout.addRow("Signal Type:", self.combo_signal_type)
+        form_layout.addRow("Signal Type:", self.combo_signal_type)
         self.combo_signal_type.currentTextChanged.connect(self._on_signal_type_changed)
 
+        sig_layout.addLayout(form_layout)
         sig_group.setLayout(sig_layout)
         root.addWidget(sig_group)
+
+        # Connect mode change signal
+        self.radio_hex.toggled.connect(self._on_mode_changed)
+        self.radio_builder.toggled.connect(self._on_mode_changed)
+        self._on_mode_changed()  # Set initial field states
 
         # Tone parameters
         tone_group = QGroupBox("Tone Parameters")
@@ -142,15 +174,51 @@ class Page121(QWidget):
 
         # TX settings
         tx_group = QGroupBox("Transmission Settings")
-        tx_layout = QFormLayout()
+        tx_layout = QVBoxLayout()
 
-        self.repeat_count = QSpinBox()
-        self.repeat_count.setRange(1, 1000)
-        self.repeat_count.setValue(1)
-        tx_layout.addRow("Repeat Count:", self.repeat_count)
+        # Mode selection (Loop vs Finite)
+        tx_mode_layout = QHBoxLayout()
+        tx_mode_label = QLabel("Mode:")
+        self.radio_loop = QRadioButton("Loop (endless)")
+        self.radio_finite = QRadioButton("Finite (N frames)")
+        self.radio_loop.setChecked(True)  # Default: Loop
 
+        self.tx_mode_group = QButtonGroup(self)
+        self.tx_mode_group.addButton(self.radio_loop, 0)
+        self.tx_mode_group.addButton(self.radio_finite, 1)
+
+        tx_mode_layout.addWidget(tx_mode_label)
+        tx_mode_layout.addWidget(self.radio_loop)
+        tx_mode_layout.addWidget(self.radio_finite)
+        tx_mode_layout.addStretch()
+        tx_layout.addLayout(tx_mode_layout)
+
+        # Form fields
+        tx_form = QFormLayout()
+
+        # Frame count (only for Finite mode)
+        self.frame_count = QSpinBox()
+        self.frame_count.setRange(1, 10000)
+        self.frame_count.setValue(5)
+        tx_form.addRow("Frame Count:", self.frame_count)
+
+        # Gap between frames
+        self.gap_s = QDoubleSpinBox()
+        self.gap_s.setRange(0.0, 60.0)
+        self.gap_s.setSingleStep(0.1)
+        self.gap_s.setDecimals(1)
+        self.gap_s.setValue(8.0)
+        self.gap_s.setSuffix(" s")
+        tx_form.addRow("Gap between frames:", self.gap_s)
+
+        tx_layout.addLayout(tx_form)
         tx_group.setLayout(tx_layout)
         root.addWidget(tx_group)
+
+        # Connect TX mode switch
+        self.radio_loop.toggled.connect(self._on_tx_mode_changed)
+        self.radio_finite.toggled.connect(self._on_tx_mode_changed)
+        self._on_tx_mode_changed()  # Set initial TX field states
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -183,6 +251,25 @@ class Page121(QWidget):
 
         # Auto-load default profile if exists
         self._load_default_profile()
+
+    def _on_mode_changed(self):
+        """Handle mode switching between Direct HEX and Message Builder."""
+        is_hex_mode = self.radio_hex.isChecked()
+
+        # Direct HEX mode: enable hex_message, disable builder fields
+        # Message Builder mode: disable hex_message, enable builder fields
+        self.hex_message.setEnabled(is_hex_mode)
+        self.combo_signal_type.setEnabled(not is_hex_mode)
+
+        # Tone parameters are controlled by signal type when builder is active
+        if not is_hex_mode:
+            self._on_signal_type_changed(self.combo_signal_type.currentText())
+
+    def _on_tx_mode_changed(self):
+        """Handle TX mode switching between Loop and Finite."""
+        is_finite = self.radio_finite.isChecked()
+        # Frame count only enabled in Finite mode
+        self.frame_count.setEnabled(is_finite)
 
     def _load_default_profile(self):
         """Auto-load default.json profile if it exists on startup."""
@@ -228,6 +315,8 @@ class Page121(QWidget):
             "name": None,
             "standard": "121",
             "standard_params": {
+                "input_mode": "hex" if self.radio_hex.isChecked() else "builder",
+                "hex_message": self.hex_message.text(),
                 "signal_type": self.combo_signal_type.currentText(),
                 "tone_hz": int(self.tone_hz.value()),
                 "sweep_rate": float(self.sweep_rate.value()),
@@ -243,9 +332,9 @@ class Page121(QWidget):
                 "type": "121",
             },
             "schedule": {
-                "mode": "repeat",
-                "gap_s": 0.0,
-                "repeat": int(self.repeat_count.value()),
+                "mode": "loop" if self.radio_loop.isChecked() else "repeat",
+                "gap_s": float(self.gap_s.value()),
+                "repeat": int(self.frame_count.value()),
             },
             "device": {
                 "backend": self.combo_backend.currentText(),
@@ -326,6 +415,17 @@ class Page121(QWidget):
         # Standard params
         sp = p.get("standard_params", {})
 
+        # HEX message
+        self.hex_message.setText(str(sp.get("hex_message", "")))
+
+        # Input mode (hex or builder)
+        input_mode = str(sp.get("input_mode", "builder"))
+        if input_mode == "hex":
+            self.radio_hex.setChecked(True)
+        else:
+            self.radio_builder.setChecked(True)
+        # Mode change will be handled by _on_mode_changed() signal
+
         # Signal type
         signal_type = str(sp.get("signal_type", "Swept Tone (300-1600 Hz)"))
         idx = self.combo_signal_type.findText(signal_type)
@@ -343,7 +443,16 @@ class Page121(QWidget):
         self.duty_cycle.setValue(float(sp.get("duty_cycle", 1.0)))
 
         # Schedule
-        self.repeat_count.setValue(int(p.get("schedule", {}).get("repeat", 1)))
+        schedule = p.get("schedule", {})
+        mode = str(schedule.get("mode", "loop"))
+        if mode == "loop":
+            self.radio_loop.setChecked(True)
+        else:
+            self.radio_finite.setChecked(True)
+        # TX mode change will be handled by _on_tx_mode_changed() signal
+
+        self.frame_count.setValue(int(schedule.get("repeat", 5)))
+        self.gap_s.setValue(float(schedule.get("gap_s", 8.0)))
 
     @staticmethod
     def _safe_int(text: str, default: int = 0) -> int:

@@ -1,8 +1,8 @@
 """NAVTEX signal generator page."""
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QPushButton,
-    QComboBox, QLineEdit, QSpinBox, QGroupBox, QLabel, QTextEdit, QFileDialog, QCheckBox,
-    QMessageBox
+    QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QGroupBox, QLabel, QTextEdit, QFileDialog, QCheckBox,
+    QMessageBox, QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Qt
 from pathlib import Path
@@ -84,54 +84,116 @@ class PageNAVTEX(QWidget):
 
         # Message configuration
         msg_group = QGroupBox("Message Configuration")
-        msg_layout = QFormLayout()
+        msg_layout = QVBoxLayout()
 
+        # Mode selection (Radio buttons)
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("Input Mode:")
+        self.radio_hex = QRadioButton("Direct HEX")
+        self.radio_builder = QRadioButton("Message Builder")
+        self.radio_hex.setChecked(True)  # Default: Direct HEX
+
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.addButton(self.radio_hex, 0)
+        self.mode_group.addButton(self.radio_builder, 1)
+
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.radio_hex)
+        mode_layout.addWidget(self.radio_builder)
+        mode_layout.addStretch()
+        msg_layout.addLayout(mode_layout)
+
+        # Form fields
+        form_layout = QFormLayout()
+
+        # Direct HEX field (enabled by default)
+        self.hex_message = QLineEdit("")
+        self.hex_message.setPlaceholderText("Raw NAVTEX hex payload")
+        form_layout.addRow("HEX Message:", self.hex_message)
+
+        # Message Builder fields (disabled by default)
         self.station_id = QLineEdit("A")
         self.station_id.setMaxLength(1)
         self.station_id.setPlaceholderText("A-Z")
-        msg_layout.addRow("Station ID:", self.station_id)
+        form_layout.addRow("Station ID:", self.station_id)
 
         self.msg_type = QLineEdit("A")
         self.msg_type.setMaxLength(1)
         self.msg_type.setPlaceholderText("A=Navigational Warning, B=Met, etc.")
-        msg_layout.addRow("Message Type:", self.msg_type)
+        form_layout.addRow("Message Type:", self.msg_type)
 
         self.msg_number = QLineEdit("01")
         self.msg_number.setMaxLength(2)
-        msg_layout.addRow("Message Number:", self.msg_number)
-
-        msg_group.setLayout(msg_layout)
-        root.addWidget(msg_group)
-
-        # Message text
-        text_group = QGroupBox("Message Text")
-        text_layout = QVBoxLayout()
+        form_layout.addRow("Message Number:", self.msg_number)
 
         self.message_text = QTextEdit()
         self.message_text.setPlaceholderText("Enter NAVTEX message text here...\n\n"
                                             "Max 80 characters per line.\n"
                                             "SITOR-B encoding will be applied.")
         self.message_text.setMaximumHeight(150)
-        text_layout.addWidget(self.message_text)
+        form_layout.addRow("Message Text:", self.message_text)
 
         btn_import = QPushButton("Import from File...")
         btn_import.clicked.connect(self._import_text)
-        text_layout.addWidget(btn_import)
+        form_layout.addRow("", btn_import)
 
-        text_group.setLayout(text_layout)
-        root.addWidget(text_group)
+        msg_layout.addLayout(form_layout)
+
+        msg_group.setLayout(msg_layout)
+        root.addWidget(msg_group)
+
+        # Connect mode change signal
+        self.radio_hex.toggled.connect(self._on_mode_changed)
+        self.radio_builder.toggled.connect(self._on_mode_changed)
+        self._on_mode_changed()  # Set initial field states
 
         # TX settings
         tx_group = QGroupBox("Transmission Settings")
-        tx_layout = QFormLayout()
+        tx_layout = QVBoxLayout()
 
-        self.repeat_count = QSpinBox()
-        self.repeat_count.setRange(1, 10)
-        self.repeat_count.setValue(1)
-        tx_layout.addRow("Repeat Count:", self.repeat_count)
+        # Mode selection (Loop vs Finite)
+        tx_mode_layout = QHBoxLayout()
+        tx_mode_label = QLabel("Mode:")
+        self.radio_loop = QRadioButton("Loop (endless)")
+        self.radio_finite = QRadioButton("Finite (N frames)")
+        self.radio_loop.setChecked(True)  # Default: Loop
 
+        self.tx_mode_group = QButtonGroup(self)
+        self.tx_mode_group.addButton(self.radio_loop, 0)
+        self.tx_mode_group.addButton(self.radio_finite, 1)
+
+        tx_mode_layout.addWidget(tx_mode_label)
+        tx_mode_layout.addWidget(self.radio_loop)
+        tx_mode_layout.addWidget(self.radio_finite)
+        tx_mode_layout.addStretch()
+        tx_layout.addLayout(tx_mode_layout)
+
+        # Form fields
+        tx_form = QFormLayout()
+
+        # Frame count (only for Finite mode)
+        self.frame_count = QSpinBox()
+        self.frame_count.setRange(1, 10000)
+        self.frame_count.setValue(5)
+        tx_form.addRow("Frame Count:", self.frame_count)
+
+        # Gap between frames
+        self.gap_s = QDoubleSpinBox()
+        self.gap_s.setRange(0.0, 60.0)
+        self.gap_s.setSingleStep(0.1)
+        self.gap_s.setDecimals(1)
+        self.gap_s.setValue(8.0)
+        self.gap_s.setSuffix(" s")
+        tx_form.addRow("Gap between frames:", self.gap_s)
+
+        tx_layout.addLayout(tx_form)
         tx_group.setLayout(tx_layout)
         root.addWidget(tx_group)
+
+        # Connect TX mode switch
+        self.radio_loop.toggled.connect(self._on_tx_mode_changed)
+        self.radio_finite.toggled.connect(self._on_tx_mode_changed)
+        self._on_tx_mode_changed()  # Set initial TX field states
 
         # Buttons
         btn_layout = QHBoxLayout()
@@ -161,6 +223,24 @@ class PageNAVTEX(QWidget):
 
         # Auto-load default profile if exists
         self._load_default_profile()
+
+    def _on_mode_changed(self):
+        """Handle mode switching between Direct HEX and Message Builder."""
+        is_hex_mode = self.radio_hex.isChecked()
+
+        # Direct HEX mode: enable hex_message, disable builder fields
+        # Message Builder mode: disable hex_message, enable builder fields
+        self.hex_message.setEnabled(is_hex_mode)
+        self.station_id.setEnabled(not is_hex_mode)
+        self.msg_type.setEnabled(not is_hex_mode)
+        self.msg_number.setEnabled(not is_hex_mode)
+        self.message_text.setEnabled(not is_hex_mode)
+
+    def _on_tx_mode_changed(self):
+        """Handle TX mode switching between Loop and Finite."""
+        is_finite = self.radio_finite.isChecked()
+        # Frame count only enabled in Finite mode
+        self.frame_count.setEnabled(is_finite)
 
     def _load_default_profile(self):
         """Auto-load default.json profile if it exists on startup."""
@@ -220,11 +300,13 @@ class PageNAVTEX(QWidget):
             "name": None,
             "standard": "navtex",
             "standard_params": {
+                "input_mode": "hex" if self.radio_hex.isChecked() else "builder",
                 "frequency": self.combo_freq.currentText(),
                 "station_id": self.station_id.text(),
                 "msg_type": self.msg_type.text(),
                 "msg_number": self.msg_number.text(),
                 "message_text": self.message_text.toPlainText(),
+                "hex_message": self.hex_message.text(),
             },
             "modulation": {
                 "type": "FSK",
@@ -233,9 +315,9 @@ class PageNAVTEX(QWidget):
                 "type": "NAVTEX",
             },
             "schedule": {
-                "mode": "repeat",
-                "gap_s": 0.0,
-                "repeat": int(self.repeat_count.value()),
+                "mode": "loop" if self.radio_loop.isChecked() else "repeat",
+                "gap_s": float(self.gap_s.value()),
+                "repeat": int(self.frame_count.value()),
             },
             "device": {
                 "backend": self.combo_backend.currentText(),
@@ -328,8 +410,28 @@ class PageNAVTEX(QWidget):
         self.msg_number.setText(str(sp.get("msg_number", "01")))
         self.message_text.setPlainText(str(sp.get("message_text", "")))
 
+        # HEX message
+        self.hex_message.setText(str(sp.get("hex_message", "")))
+
+        # Input mode (hex or builder)
+        input_mode = str(sp.get("input_mode", "hex"))
+        if input_mode == "hex":
+            self.radio_hex.setChecked(True)
+        else:
+            self.radio_builder.setChecked(True)
+        # Mode change will be handled by _on_mode_changed() signal
+
         # Schedule
-        self.repeat_count.setValue(int(p.get("schedule", {}).get("repeat", 1)))
+        schedule = p.get("schedule", {})
+        mode = str(schedule.get("mode", "loop"))
+        if mode == "loop":
+            self.radio_loop.setChecked(True)
+        else:
+            self.radio_finite.setChecked(True)
+        # TX mode change will be handled by _on_tx_mode_changed() signal
+
+        self.frame_count.setValue(int(schedule.get("repeat", 5)))
+        self.gap_s.setValue(float(schedule.get("gap_s", 8.0)))
 
     @staticmethod
     def _safe_int(text: str, default: int = 0) -> int:
