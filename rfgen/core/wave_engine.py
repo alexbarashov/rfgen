@@ -104,7 +104,6 @@ def build_psk406(profile: dict) -> np.ndarray:
     carrier_sec = float(std_params.get("carrier_sec", 0.16))
     pre_silence_ms = float(std_params.get("pre_silence_ms", 25.0))
     post_silence_ms = float(std_params.get("post_silence_ms", 25.0))
-    if_offset_hz = float(profile["device"].get("if_offset_hz", 0))
 
     # Schedule параметры (ТЗ 2025-10-21_406_LOOP)
     schedule = profile.get("schedule", {})
@@ -188,13 +187,9 @@ def build_psk406(profile: dict) -> np.ndarray:
     # Склейка всех секций
     sig = np.concatenate([pre, carrier, msg, post]).astype(np.complex64)
 
-    # Применение IF-сдвига (цифровой домикс)
-    if abs(if_offset_hz) > 1e-6 and sig.size > 0:
-        t = np.arange(sig.size, dtype=np.float32) / float(fs)
-        phase = 2.0 * np.pi * if_offset_hz * t
-        sig = (sig * np.exp(1j * phase)).astype(np.complex64)
-
     # Нормализация к безопасному уровню
+    # ВАЖНО: генератор выдаёт чистый baseband (0 Гц)
+    # Цифровая компенсация IF+corr выполняется в backend (hackrf.py)
     sig = _clip_norm(sig, peak=0.95)
 
     return sig

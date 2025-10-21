@@ -64,6 +64,30 @@ def _calc_metrics(iq: np.ndarray) -> dict:
     return {"rms": rms, "peak": peak}
 
 
+def _apply_digital_shift(iq: np.ndarray, shift_hz: float, fs: int) -> np.ndarray:
+    """
+    Применить цифровой частотный сдвиг к IQ-буферу.
+
+    Параметры:
+    - iq: входной IQ-массив (complex64)
+    - shift_hz: частотный сдвиг в Гц (положительный = вверх, отрицательный = вниз)
+    - fs: частота дискретизации (Гц)
+
+    Возвращает: IQ-массив со сдвигом
+
+    Формула: iq_shifted = iq * exp(j * 2π * shift_hz * t)
+    где t = [0, 1/fs, 2/fs, ...]
+    """
+    if abs(shift_hz) < 1e-6 or iq.size == 0:
+        return iq  # Нет сдвига
+
+    t = np.arange(iq.size, dtype=np.float32) / float(fs)
+    phase = 2.0 * np.pi * shift_hz * t
+    shifted = (iq * np.exp(1j * phase)).astype(np.complex64)
+
+    return shifted
+
+
 class HackRFTx:
     def __init__(self, exe: str = "hackrf_transfer"):
         self.exe = exe
@@ -95,7 +119,8 @@ class HackRFTx:
         except Exception:
             pass
 
-    def run_loop(self, iq_path: Path, fs_tx: int, center_hz: int, tx_gain_db: int, pa_enabled: bool = False,
+    def run_loop(self, iq_path: Path, fs_tx: int, target_hz: int, tx_gain_db: int,
+                 if_offset_hz: int = 0, freq_corr_hz: int = 0, pa_enabled: bool = False,
                  mode: str = "loop", repeat: int = 1, gap_s: float = 0.0):
         """
         Стартуем hackrf_transfer в режиме loop или repeat.
@@ -103,20 +128,26 @@ class HackRFTx:
         Параметры:
         - iq_path: путь к IQ-файлу (cf32 или sc8)
         - fs_tx: частота дискретизации TX (Гц)
-        - center_hz: центральная частота (Гц)
+        - target_hz: целевая RF частота (Гц) - то, что должно выйти в эфир
         - tx_gain_db: TX gain (dB), 0..47
+        - if_offset_hz: IF смещение (Гц), по умолчанию 0
+        - freq_corr_hz: частотная коррекция (Гц), по умолчанию 0
         - pa_enabled: включить PA (флаг -a 1)
         - mode: "loop" (бесконечный повтор) или "repeat" (N кадров)
         - repeat: количество повторений (только для mode="repeat")
         - gap_s: пауза между кадрами в секундах
 
         Процесс:
-        1. Определяем формат файла (cf32 или sc8)
-        2. Если cf32: читаем, рассчитываем метрики, конвертируем в sc8
-        3. Если sc8: используем напрямую (обратная совместимость)
-        4. Для mode="loop": запускаем с -R (gap встроен в кадр генератором)
-        5. Для mode="repeat": конкатенируем (frame + gap) * repeat, запускаем без -R
-        6. Логируем всё в лог-файл
+        1. Вычисляем center_hz = target_hz + if_offset_hz + freq_corr_hz (частота LO)
+        2. Вычисляем digital_shift_hz = -(if_offset_hz + freq_corr_hz) (компенсация)
+        3. Определяем формат файла (cf32 или sc8)
+        4. Если cf32: читаем, применяем цифровой сдвиг, рассчитываем метрики, конвертируем в sc8
+        5. Если sc8: используем напрямую (обратная совместимость, без сдвига)
+        6. Для mode=="loop": запускаем с -R (gap встроен в кадр генератором)
+        7. Для mode=="repeat": конкатенируем (frame + gap) * repeat, запускаем без -R
+        8. Логируем всё в лог-файл
+
+        Инвариант: RF = center_hz + digital_shift_hz = target_hz
         """
         if self.is_running():
             raise RuntimeError("HackRF already running")
@@ -124,7 +155,11 @@ class HackRFTx:
         if not iq_path.exists():
             raise FileNotFoundError(f"IQ file not found: {iq_path}")
 
-        # 1. Определяем формат
+        # 1. Вычисляем частоты и цифровой сдвиг
+        center_hz = target_hz + if_offset_hz + freq_corr_hz
+        digital_shift_hz = -(if_offset_hz + freq_corr_hz)
+
+        # 2. Определяем формат
         is_cf32 = iq_path.suffix.lower() in (".cf32", ".iq")
         metrics = {"rms": 0.0, "peak": 0.0}  # по умолчанию
 
@@ -132,7 +167,10 @@ class HackRFTx:
             # 2A. Читаем cf32 файл
             iq_cf32 = _read_cf32(iq_path)
 
-            # Рассчитываем метрики
+            # Применяем цифровой сдвиг (IF компенсация)
+            iq_cf32 = _apply_digital_shift(iq_cf32, digital_shift_hz, fs_tx)
+
+            # Рассчитываем метрики (после сдвига)
             metrics = _calc_metrics(iq_cf32)
 
             # Конвертируем в sc8
@@ -225,9 +263,16 @@ class HackRFTx:
         self._log(f"RMS: {metrics['rms']:.6f}")
         self._log(f"Peak: {metrics['peak']:.6f}")
         self._log(f"PA enabled: {pa_enabled}")
-        self._log(f"Center: {center_hz} Hz")
         self._log(f"Fs TX: {fs_tx} Hz")
         self._log(f"TX Gain: {tx_gain_db} dB")
+        self._log("")
+        self._log(f"=== IF Compensation ===")
+        self._log(f"Target: {target_hz} Hz")
+        self._log(f"IF offset: {if_offset_hz} Hz")
+        self._log(f"Freq corr: {freq_corr_hz} Hz")
+        self._log(f"Center (LO): {center_hz} Hz")
+        self._log(f"Digital shift: {digital_shift_hz} Hz")
+        self._log(f"RF out (invariant): {center_hz + digital_shift_hz} Hz (should equal target)")
         self._log("")
         self._log(f"=== Schedule ===")
         self._log(f"Mode: {mode}")

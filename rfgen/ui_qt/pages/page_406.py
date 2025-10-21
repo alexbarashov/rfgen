@@ -613,11 +613,10 @@ class Page406(QWidget):
             with open(temp_path, "wb") as f:
                 inter.tofile(f)
 
-            # Calculate center frequency
+            # Extract frequency parameters
             target_hz = prof["device"]["target_hz"]
             if_offset_hz = prof["device"]["if_offset_hz"]
             freq_corr_hz = prof["device"]["freq_corr_hz"]
-            center_hz = target_hz + if_offset_hz + freq_corr_hz
 
             # Start HackRF
             self.status_label.setText("Starting HackRF transmission...")
@@ -635,8 +634,10 @@ class Page406(QWidget):
             hackrf.run_loop(
                 iq_path=temp_path,
                 fs_tx=prof["device"]["fs_tx"],
-                center_hz=int(center_hz),
+                target_hz=int(target_hz),
                 tx_gain_db=prof["device"]["tx_gain_db"],
+                if_offset_hz=int(if_offset_hz),
+                freq_corr_hz=int(freq_corr_hz),
                 pa_enabled=pa_enabled,
                 mode=mode,
                 repeat=repeat,

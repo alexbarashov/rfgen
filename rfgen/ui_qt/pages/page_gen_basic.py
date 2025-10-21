@@ -274,12 +274,11 @@ class PageGenBasic(QWidget):
         backend = prof["device"]["backend"]
         fs = int(prof["device"]["fs_tx"])
         target = int(prof["device"]["target_hz"])
-        if_hz = int(prof["device"]["if_offset_hz"])
-        # if IF!=0: generate complex tone at +IF and set LO=center=target-IF
-        center = target if if_hz == 0 else (target - if_hz)
+        if_offset_hz = int(prof["device"]["if_offset_hz"])
+        freq_corr_hz = int(prof["device"]["freq_corr_hz"])
         tx_gain = int(prof["device"]["tx_gain_db"])
 
-        # Build IQ
+        # Build IQ (генератор выдаёт чистый baseband на 0 Гц)
         if self.combo_mod.currentText().lower() == "none":
             iq = build_cw(prof, frame_s=1.0)
         else:
@@ -292,7 +291,15 @@ class PageGenBasic(QWidget):
             self._hrf = HackRFTx()
             try:
                 pa_enabled = self.pa_enable.isChecked()
-                self._hrf.run_loop(iq_path, fs_tx=fs, center_hz=center, tx_gain_db=tx_gain, pa_enabled=pa_enabled)
+                self._hrf.run_loop(
+                    iq_path,
+                    fs_tx=fs,
+                    target_hz=target,
+                    tx_gain_db=tx_gain,
+                    if_offset_hz=if_offset_hz,
+                    freq_corr_hz=freq_corr_hz,
+                    pa_enabled=pa_enabled
+                )
             except Exception as e:
                 QMessageBox.critical(self, "HackRF start failed",
                                      f"Failed to start hackrf_transfer.\n{e}\n"
