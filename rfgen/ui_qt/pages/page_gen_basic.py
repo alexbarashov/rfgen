@@ -187,8 +187,8 @@ class PageGenBasic(QWidget):
         self._status(f"Profile saved: {out_path.name}")
 
     def _load_default_profile(self):
-        """Auto-load default.json profile if it exists on startup."""
-        default_path = profiles_dir() / "default.json"
+        """Auto-load default_basic.json profile if it exists on startup."""
+        default_path = profiles_dir() / "default_basic.json"
         if default_path.exists():
             data = load_json(default_path)
             if data:

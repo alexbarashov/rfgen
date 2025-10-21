@@ -286,12 +286,12 @@ class Page406(QWidget):
         self._autosave_to_default()
 
     def _load_default_profile(self):
-        """Auto-load default.json profile if it exists on startup."""
+        """Auto-load default_c406.json profile if it exists on startup."""
         from ...utils.profile_io import defaults, apply_defaults
 
-        default_path = profiles_dir() / "default.json"
+        default_path = profiles_dir() / "default_c406.json"
 
-        # If default.json exists and matches this page's standard, load it
+        # If default_c406.json exists and matches this page's standard, load it
         if default_path.exists():
             data = load_json(default_path)
             if data and data.get("standard") == "c406":
@@ -365,11 +365,11 @@ class Page406(QWidget):
         self._autosave_timer.start()
 
     def _do_autosave(self):
-        """Actually save current settings to default.json."""
+        """Actually save current settings to default_c406.json."""
         try:
             prof = self._collect_profile()
             prof["name"] = "default"
-            default_path = profiles_dir() / "default.json"
+            default_path = profiles_dir() / "default_c406.json"
             save_json(default_path, prof)
         except Exception:
             pass  # Silent fail for autosave

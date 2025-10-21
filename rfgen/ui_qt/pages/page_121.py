@@ -272,12 +272,12 @@ class Page121(QWidget):
         self.frame_count.setEnabled(is_finite)
 
     def _load_default_profile(self):
-        """Auto-load default.json profile if it exists on startup."""
-        default_path = profiles_dir() / "default.json"
+        """Auto-load default_121.json profile if it exists on startup."""
+        default_path = profiles_dir() / "default_121.json"
         if default_path.exists():
             data = load_json(default_path)
             if data:
-                # Check if profile matches this page's standard
+                # Verify it's the correct standard (safety check)
                 if data.get("standard") != "121":
                     return  # Wrong standard, skip loading
                 ok, msg = validate_profile(data)
