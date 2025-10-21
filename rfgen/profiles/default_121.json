@@ -1,20 +1,19 @@
 {
-  "name": "default",
+  "name": "default_121",
   "standard": "121",
   "standard_params": {
     "input_mode": "builder",
-    "signal_type": "Swept Tone",
-    "sweep_start_hz": 300,
-    "sweep_end_hz": 1600,
-    "sweep_duration_s": 0.5,
+    "hex_message": "",
+    "signal_type": "Swept Tone (300-1600 Hz)",
     "tone_hz": 1000,
+    "sweep_rate": 2.0,
+    "sweep_low": 300,
+    "sweep_high": 1600,
     "am_depth": 0.8,
-    "duty_cycle": 0.5,
-    "hex_message": ""
+    "duty_cycle": 0.5
   },
   "modulation": {
-    "type": "AM",
-    "am_depth": 0.8
+    "type": "AM"
   },
   "pattern": {
     "type": "121"
@@ -30,11 +29,10 @@
     "tx_gain_db": 30,
     "pa": false,
     "target_hz": 121500000,
-    "if_offset_hz": 0,
+    "if_offset_hz": 25000,
     "freq_corr_hz": 0
   },
   "_meta": {
-    "created_utc": "2025-10-21T13:00:00Z",
-    "notes": "Default 121.5 MHz Emergency Beacon profile - USE ONLY IN SHIELDED ENVIRONMENT"
+    "created_utc": "2025-10-21T13:00:32Z"
   }
 }
