@@ -2,7 +2,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QPushButton,
     QComboBox, QLineEdit, QSpinBox, QGroupBox, QLabel, QTextEdit, QCheckBox,
-    QMessageBox, QFileDialog
+    QMessageBox, QFileDialog, QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Qt
 from pathlib import Path
@@ -80,22 +80,55 @@ class PageAIS(QWidget):
 
         # Message configuration
         msg_group = QGroupBox("Message Configuration")
-        msg_layout = QFormLayout()
+        msg_layout = QVBoxLayout()
 
+        # Mode selection (Radio buttons)
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("Input Mode:")
+        self.radio_hex = QRadioButton("Direct HEX")
+        self.radio_builder = QRadioButton("Message Builder")
+        self.radio_hex.setChecked(True)  # Default: Direct HEX
+
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.addButton(self.radio_hex, 0)
+        self.mode_group.addButton(self.radio_builder, 1)
+
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.radio_hex)
+        mode_layout.addWidget(self.radio_builder)
+        mode_layout.addStretch()
+        msg_layout.addLayout(mode_layout)
+
+        # Form fields
+        form_layout = QFormLayout()
+
+        # Message Builder fields (disabled by default)
         self.combo_msg_type = QComboBox()
         self.combo_msg_type.addItems(["Position Report (1/2/3)", "Base Station (4)", "Static Data (5)", "Test Pattern"])
-        msg_layout.addRow("Message Type:", self.combo_msg_type)
+        form_layout.addRow("Message Type:", self.combo_msg_type)
 
         self.mmsi = QLineEdit("123456789")
-        msg_layout.addRow("MMSI:", self.mmsi)
+        form_layout.addRow("MMSI:", self.mmsi)
 
         self.payload_input = QTextEdit()
         self.payload_input.setMaximumHeight(80)
         self.payload_input.setPlaceholderText("Payload (hex or NMEA VDM format)")
-        msg_layout.addRow("Payload:", self.payload_input)
+        form_layout.addRow("Payload:", self.payload_input)
+
+        # Direct HEX field (enabled by default)
+        self.hex_message = QLineEdit("")
+        self.hex_message.setPlaceholderText("Raw AIS hex payload (e.g., 15MwkT0P...)")
+        form_layout.addRow("HEX Message:", self.hex_message)
+
+        msg_layout.addLayout(form_layout)
 
         msg_group.setLayout(msg_layout)
         root.addWidget(msg_group)
+
+        # Connect mode change signal
+        self.radio_hex.toggled.connect(self._on_mode_changed)
+        self.radio_builder.toggled.connect(self._on_mode_changed)
+        self._on_mode_changed()  # Set initial field states
 
         # TX settings
         tx_group = QGroupBox("Transmission Settings")
@@ -159,16 +192,29 @@ class PageAIS(QWidget):
         elif "Channel B" in text:
             self.target_hz_radio.setText("162025000")
 
+    def _on_mode_changed(self):
+        """Handle mode switching between Direct HEX and Message Builder."""
+        is_hex_mode = self.radio_hex.isChecked()
+
+        # Direct HEX mode: enable hex_message, disable builder fields
+        # Message Builder mode: disable hex_message, enable builder fields
+        self.hex_message.setEnabled(is_hex_mode)
+        self.combo_msg_type.setEnabled(not is_hex_mode)
+        self.mmsi.setEnabled(not is_hex_mode)
+        self.payload_input.setEnabled(not is_hex_mode)
+
     def _collect_profile(self):
         """Collect current settings into profile dictionary."""
         profile = {
             "name": None,
             "standard": "ais",
             "standard_params": {
+                "input_mode": "hex" if self.radio_hex.isChecked() else "builder",
                 "channel": self.combo_channel.currentText(),
                 "msg_type": self.combo_msg_type.currentText(),
                 "mmsi": self.mmsi.text(),
                 "payload": self.payload_input.toPlainText(),
+                "hex_message": self.hex_message.text(),
             },
             "modulation": {
                 "type": "GMSK",
@@ -274,6 +320,15 @@ class PageAIS(QWidget):
 
         self.mmsi.setText(str(sp.get("mmsi", "123456789")))
         self.payload_input.setPlainText(str(sp.get("payload", "")))
+        self.hex_message.setText(str(sp.get("hex_message", "")))
+
+        # Input mode (hex or builder)
+        input_mode = str(sp.get("input_mode", "hex"))
+        if input_mode == "hex":
+            self.radio_hex.setChecked(True)
+        else:
+            self.radio_builder.setChecked(True)
+        # Mode change will be handled by _on_mode_changed() signal
 
         # Schedule
         self.repeat_count.setValue(int(p.get("schedule", {}).get("repeat", 1)))
