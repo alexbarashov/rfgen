@@ -2,7 +2,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QPushButton,
     QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QGroupBox, QLabel, QCheckBox,
-    QMessageBox, QFileDialog
+    QMessageBox, QFileDialog, QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Qt, QTimer
 from pathlib import Path
@@ -73,8 +73,29 @@ class Page406(QWidget):
 
         # Message configuration
         msg_group = QGroupBox("Message Configuration")
-        msg_layout = QFormLayout()
+        msg_layout = QVBoxLayout()
 
+        # Mode selection (Radio buttons)
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("Input Mode:")
+        self.radio_hex = QRadioButton("Direct HEX")
+        self.radio_builder = QRadioButton("Message Builder")
+        self.radio_hex.setChecked(True)  # Default: Direct HEX
+
+        self.mode_group = QButtonGroup(self)
+        self.mode_group.addButton(self.radio_hex, 0)
+        self.mode_group.addButton(self.radio_builder, 1)
+
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.radio_hex)
+        mode_layout.addWidget(self.radio_builder)
+        mode_layout.addStretch()
+        msg_layout.addLayout(mode_layout)
+
+        # Form fields
+        form_layout = QFormLayout()
+
+        # Message Builder fields (disabled by default)
         self.combo_msg_type = QComboBox()
         self.combo_msg_type.addItems([
             "Standard Location (Hex ID)",
@@ -82,24 +103,29 @@ class Page406(QWidget):
             "Test Message",
             "BPSK Pattern (Debug)"
         ])
-        msg_layout.addRow("Message Type:", self.combo_msg_type)
+        form_layout.addRow("Message Type:", self.combo_msg_type)
 
         self.beacon_id = QLineEdit("123456789ABCDEF")
         self.beacon_id.setPlaceholderText("15-bit hex beacon ID")
-        msg_layout.addRow("Beacon ID (Hex):", self.beacon_id)
+        form_layout.addRow("Beacon ID (Hex):", self.beacon_id)
 
         self.lat = QLineEdit("0.0")
-        msg_layout.addRow("Latitude:", self.lat)
+        form_layout.addRow("Latitude:", self.lat)
 
         self.lon = QLineEdit("0.0")
-        msg_layout.addRow("Longitude:", self.lon)
+        form_layout.addRow("Longitude:", self.lon)
 
+        # Direct HEX field (enabled by default)
         self.hex_message = QLineEdit("FFFED080020000007FDFFB0020B783E0F66C")
         self.hex_message.setPlaceholderText("Raw hex message data")
-        msg_layout.addRow("HEX Message:", self.hex_message)
+        form_layout.addRow("HEX Message:", self.hex_message)
 
+        msg_layout.addLayout(form_layout)
         msg_group.setLayout(msg_layout)
         root.addWidget(msg_group)
+
+        # Connect mode switch (will be set after timer initialization)
+        # Initial state will be set after timer creation
 
         # PSK-406 parameters
         psk_group = QGroupBox("PSK-406 Parameters")
@@ -195,6 +221,26 @@ class Page406(QWidget):
         # Connect value change signals to auto-save
         self._connect_autosave_signals()
 
+        # Connect mode switch and set initial state (after timer is created)
+        self.radio_hex.toggled.connect(self._on_mode_changed)
+        self.radio_builder.toggled.connect(self._on_mode_changed)
+        self._on_mode_changed()  # Set initial field states
+
+    def _on_mode_changed(self):
+        """Handle mode switching between Direct HEX and Message Builder."""
+        is_hex_mode = self.radio_hex.isChecked()
+
+        # Direct HEX mode: enable hex_message, disable builder fields
+        # Message Builder mode: disable hex_message, enable builder fields
+        self.hex_message.setEnabled(is_hex_mode)
+        self.combo_msg_type.setEnabled(not is_hex_mode)
+        self.beacon_id.setEnabled(not is_hex_mode)
+        self.lat.setEnabled(not is_hex_mode)
+        self.lon.setEnabled(not is_hex_mode)
+
+        # Trigger autosave when mode changes
+        self._autosave_to_default()
+
     def _load_default_profile(self):
         """Auto-load default.json profile if it exists on startup."""
         from ...utils.profile_io import defaults, apply_defaults
@@ -215,6 +261,7 @@ class Page406(QWidget):
         default_profile["name"] = "default"
         default_profile["standard"] = "c406"
         default_profile["standard_params"] = {
+            "input_mode": "hex",  # Default to Direct HEX mode
             "msg_type": "Standard Location (Hex ID)",
             "beacon_id": "123456789ABCDEF",
             "lat": "0.0",
@@ -286,6 +333,7 @@ class Page406(QWidget):
             "name": None,
             "standard": "c406",
             "standard_params": {
+                "input_mode": "hex" if self.radio_hex.isChecked() else "builder",
                 "msg_type": self.combo_msg_type.currentText(),
                 "beacon_id": self.beacon_id.text(),
                 "lat": self.lat.text(),
@@ -386,6 +434,14 @@ class Page406(QWidget):
 
         # Standard params
         sp = p.get("standard_params", {})
+
+        # Input mode (hex or builder)
+        input_mode = str(sp.get("input_mode", "hex"))
+        if input_mode == "hex":
+            self.radio_hex.setChecked(True)
+        else:
+            self.radio_builder.setChecked(True)
+        # Mode change will be handled by _on_mode_changed() signal
 
         # Message type
         msg_type = str(sp.get("msg_type", "Standard Location (Hex ID)"))
