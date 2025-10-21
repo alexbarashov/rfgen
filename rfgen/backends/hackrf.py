@@ -95,9 +95,10 @@ class HackRFTx:
         except Exception:
             pass
 
-    def run_loop(self, iq_path: Path, fs_tx: int, center_hz: int, tx_gain_db: int, pa_enabled: bool = False):
+    def run_loop(self, iq_path: Path, fs_tx: int, center_hz: int, tx_gain_db: int, pa_enabled: bool = False,
+                 mode: str = "loop", repeat: int = 1, gap_s: float = 0.0):
         """
-        Стартуем hackrf_transfer в режиме loop (-R).
+        Стартуем hackrf_transfer в режиме loop или repeat.
 
         Параметры:
         - iq_path: путь к IQ-файлу (cf32 или sc8)
@@ -105,13 +106,17 @@ class HackRFTx:
         - center_hz: центральная частота (Гц)
         - tx_gain_db: TX gain (dB), 0..47
         - pa_enabled: включить PA (флаг -a 1)
+        - mode: "loop" (бесконечный повтор) или "repeat" (N кадров)
+        - repeat: количество повторений (только для mode="repeat")
+        - gap_s: пауза между кадрами в секундах
 
         Процесс:
         1. Определяем формат файла (cf32 или sc8)
         2. Если cf32: читаем, рассчитываем метрики, конвертируем в sc8
         3. Если sc8: используем напрямую (обратная совместимость)
-        4. Запускаем hackrf_transfer с флагом -a 1 (если pa_enabled)
-        5. Логируем всё в лог-файл
+        4. Для mode="loop": запускаем с -R (gap встроен в кадр генератором)
+        5. Для mode="repeat": конкатенируем (frame + gap) * repeat, запускаем без -R
+        6. Логируем всё в лог-файл
         """
         if self.is_running():
             raise RuntimeError("HackRF already running")
@@ -142,9 +147,33 @@ class HackRFTx:
             sc8_path = iq_path
             sc8_bytes = sc8_path.read_bytes()
 
-        # 5. Формируем команду для hackrf_transfer
+        # 3. Обработка режима передачи
+        if mode == "repeat":
+            # Режим Finite: создаём конкатенацию (frame + gap) * repeat
+            frame_sc8 = sc8_bytes
+            gap_samples = int(round(gap_s * fs_tx))
+            gap_sc8 = b"\x00" * (gap_samples * 2)  # sc8: 2 байта на сэмпл (I,Q)
+
+            # Конкатенация
+            concat_sc8 = (frame_sc8 + gap_sc8) * repeat
+
+            # Сохраняем во временный файл
+            temp_sc8_path = sc8_path.with_name(sc8_path.stem + "_repeat.sc8")
+            with open(temp_sc8_path, "wb") as f:
+                f.write(concat_sc8)
+
+            sc8_path_final = temp_sc8_path
+            sc8_bytes_final = concat_sc8
+            use_loop_flag = False  # Без -R
+        else:
+            # Режим Loop: используем один кадр с встроенным gap
+            sc8_path_final = sc8_path
+            sc8_bytes_final = sc8_bytes
+            use_loop_flag = True  # С -R
+
+        # 4. Формируем команду для hackrf_transfer
         cmd = [
-            self.exe, "-t", str(sc8_path),
+            self.exe, "-t", str(sc8_path_final),
             "-f", str(int(center_hz)),
             "-s", str(int(fs_tx)),
             "-x", str(int(tx_gain_db)),
@@ -154,8 +183,9 @@ class HackRFTx:
         if pa_enabled:
             cmd += ["-a", "1"]
 
-        # Режим loop
-        cmd += ["-R"]
+        # Добавляем -R для loop режима
+        if use_loop_flag:
+            cmd += ["-R"]
 
         self.cmdline = cmd
 
@@ -184,19 +214,30 @@ class HackRFTx:
         self._log(f"CMD: {' '.join(cmd)}")
         self._log(f"PID: {self.pid}")
         self._log(f"INPUT: {iq_path} ({'cf32' if is_cf32 else 'sc8'})")
-        self._log(f"IQ_SC8: {sc8_path}")
+        self._log(f"IQ_SC8: {sc8_path_final}")
         self._log(f"OUTPUT: {output_path}")
         self._log("")
         self._log(f"=== Metrics ===")
         if is_cf32:
             self._log(f"CF32 samples: {iq_cf32.size}")
-        self._log(f"SC8 bytes: {len(sc8_bytes)}")
+        self._log(f"SC8 bytes (frame): {len(sc8_bytes)}")
+        self._log(f"SC8 bytes (final): {len(sc8_bytes_final)}")
         self._log(f"RMS: {metrics['rms']:.6f}")
         self._log(f"Peak: {metrics['peak']:.6f}")
         self._log(f"PA enabled: {pa_enabled}")
         self._log(f"Center: {center_hz} Hz")
         self._log(f"Fs TX: {fs_tx} Hz")
         self._log(f"TX Gain: {tx_gain_db} dB")
+        self._log("")
+        self._log(f"=== Schedule ===")
+        self._log(f"Mode: {mode}")
+        self._log(f"Repeat: {repeat}")
+        self._log(f"Gap: {gap_s} s")
+        self._log(f"Loop flag (-R): {use_loop_flag}")
+        if mode == "repeat" and repeat > 1:
+            frame_duration_s = len(sc8_bytes) / (fs_tx * 2)  # sc8: 2 bytes per sample
+            total_duration_s = repeat * (frame_duration_s + gap_s)
+            self._log(f"Estimated TX duration: {total_duration_s:.2f} s")
         self._log("")
 
         # Валидация: предупреждение если peak близок к нулю (только для cf32)

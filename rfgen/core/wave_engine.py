@@ -106,6 +106,16 @@ def build_psk406(profile: dict) -> np.ndarray:
     post_silence_ms = float(std_params.get("post_silence_ms", 25.0))
     if_offset_hz = float(profile["device"].get("if_offset_hz", 0))
 
+    # Schedule параметры (ТЗ 2025-10-21_406_LOOP)
+    schedule = profile.get("schedule", {})
+    mode = schedule.get("mode", "loop")
+    gap_s = float(schedule.get("gap_s", 8.0))
+
+    # Для mode=="loop": gap встраивается в пост-тишину
+    # Для mode=="repeat": gap добавляется backend'ом между кадрами
+    if mode == "loop":
+        post_silence_ms = gap_s * 1000.0
+
     # Константы для PSK-406
     bit_rate_bps = 400.0
     bit_samples = int(round(fs / bit_rate_bps))

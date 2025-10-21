@@ -167,13 +167,44 @@ class Page406(QWidget):
 
         # TX settings
         tx_group = QGroupBox("Transmission Settings")
-        tx_layout = QFormLayout()
+        tx_layout = QVBoxLayout()
 
+        # Mode selection (Loop vs Finite)
+        mode_layout = QHBoxLayout()
+        mode_label = QLabel("Mode:")
+        self.radio_loop = QRadioButton("Loop (endless)")
+        self.radio_finite = QRadioButton("Finite (N frames)")
+        self.radio_loop.setChecked(True)  # Default: Loop
+
+        self.tx_mode_group = QButtonGroup(self)
+        self.tx_mode_group.addButton(self.radio_loop, 0)
+        self.tx_mode_group.addButton(self.radio_finite, 1)
+
+        mode_layout.addWidget(mode_label)
+        mode_layout.addWidget(self.radio_loop)
+        mode_layout.addWidget(self.radio_finite)
+        mode_layout.addStretch()
+        tx_layout.addLayout(mode_layout)
+
+        # Form fields
+        tx_form = QFormLayout()
+
+        # Frame count (only for Finite mode)
         self.frame_count = QSpinBox()
-        self.frame_count.setRange(1, 100)
-        self.frame_count.setValue(1)
-        tx_layout.addRow("Frame Count:", self.frame_count)
+        self.frame_count.setRange(1, 10000)
+        self.frame_count.setValue(5)
+        tx_form.addRow("Frame Count:", self.frame_count)
 
+        # Gap between frames
+        self.gap_s = QDoubleSpinBox()
+        self.gap_s.setRange(0.0, 60.0)
+        self.gap_s.setSingleStep(0.1)
+        self.gap_s.setDecimals(1)
+        self.gap_s.setValue(8.0)
+        self.gap_s.setSuffix(" s")
+        tx_form.addRow("Gap between frames:", self.gap_s)
+
+        tx_layout.addLayout(tx_form)
         tx_group.setLayout(tx_layout)
         root.addWidget(tx_group)
 
@@ -220,6 +251,11 @@ class Page406(QWidget):
         self.radio_builder.toggled.connect(self._on_mode_changed)
         self._on_mode_changed()  # Set initial field states
 
+        # Connect TX mode switch
+        self.radio_loop.toggled.connect(self._on_tx_mode_changed)
+        self.radio_finite.toggled.connect(self._on_tx_mode_changed)
+        self._on_tx_mode_changed()  # Set initial TX field states
+
     def _on_mode_changed(self):
         """Handle mode switching between Direct HEX and Message Builder."""
         is_hex_mode = self.radio_hex.isChecked()
@@ -235,6 +271,16 @@ class Page406(QWidget):
         # Encoding settings only for Message Builder
         self.combo_fec.setEnabled(not is_hex_mode)
         self.interleave.setEnabled(not is_hex_mode)
+
+        # Trigger autosave when mode changes
+        self._autosave_to_default()
+
+    def _on_tx_mode_changed(self):
+        """Handle TX mode switching between Loop and Finite."""
+        is_loop = self.radio_loop.isChecked()
+
+        # Frame count only enabled for Finite mode
+        self.frame_count.setEnabled(not is_loop)
 
         # Trigger autosave when mode changes
         self._autosave_to_default()
@@ -308,7 +354,10 @@ class Page406(QWidget):
         self.front_samples.valueChanged.connect(self._autosave_to_default)
         self.combo_fec.currentTextChanged.connect(self._autosave_to_default)
         self.interleave.stateChanged.connect(self._autosave_to_default)
+
+        # Schedule/TX параметры
         self.frame_count.valueChanged.connect(self._autosave_to_default)
+        self.gap_s.valueChanged.connect(self._autosave_to_default)
 
     def _autosave_to_default(self):
         """Trigger auto-save with debounce."""
@@ -342,7 +391,6 @@ class Page406(QWidget):
                 "front_samples": int(self.front_samples.value()),
                 "fec": self.combo_fec.currentText(),
                 "interleave": self.interleave.isChecked(),
-                "frame_count": int(self.frame_count.value()),
             },
             "modulation": {
                 "type": "BPSK",
@@ -351,9 +399,9 @@ class Page406(QWidget):
                 "type": "406",
             },
             "schedule": {
-                "mode": "repeat",
-                "gap_s": 0.0,
-                "repeat": 1,
+                "mode": "loop" if self.radio_loop.isChecked() else "repeat",
+                "gap_s": float(self.gap_s.value()),
+                "repeat": int(self.frame_count.value()),
             },
             "device": {
                 "backend": self.combo_backend.currentText(),
@@ -464,7 +512,18 @@ class Page406(QWidget):
             self.combo_fec.setCurrentIndex(idx)
 
         self.interleave.setChecked(bool(sp.get("interleave", True)))
-        self.frame_count.setValue(int(sp.get("frame_count", 1)))
+
+        # Schedule parameters
+        schedule = p.get("schedule", {})
+        mode = str(schedule.get("mode", "loop"))
+        if mode == "loop":
+            self.radio_loop.setChecked(True)
+        else:
+            self.radio_finite.setChecked(True)
+        # Mode change will be handled by _on_tx_mode_changed() signal
+
+        self.gap_s.setValue(float(schedule.get("gap_s", 8.0)))
+        self.frame_count.setValue(int(schedule.get("repeat", 5)))
 
         # После загрузки всех значений - триггерим автосохранение
         # чтобы сохранить загруженный профиль в default.json
@@ -566,17 +625,33 @@ class Page406(QWidget):
 
             hackrf = HackRFTx()
             pa_enabled = self.pa_enable.isChecked()
+
+            # Schedule parameters
+            schedule = prof.get("schedule", {})
+            mode = schedule.get("mode", "loop")
+            repeat = int(schedule.get("repeat", 1))
+            gap_s = float(schedule.get("gap_s", 8.0))
+
             hackrf.run_loop(
                 iq_path=temp_path,
                 fs_tx=prof["device"]["fs_tx"],
                 center_hz=int(center_hz),
                 tx_gain_db=prof["device"]["tx_gain_db"],
-                pa_enabled=pa_enabled
+                pa_enabled=pa_enabled,
+                mode=mode,
+                repeat=repeat,
+                gap_s=gap_s
             )
 
             self.btn_start.setEnabled(False)
             self.btn_stop.setEnabled(True)
-            self.status_label.setText(f"Transmitting on {target_hz/1e6:.3f} MHz (loop mode)")
+
+            # Status message depending on mode
+            if mode == "loop":
+                status_msg = f"Transmitting (loop) on {target_hz/1e6:.3f} MHz, gap={gap_s:.1f}s"
+            else:
+                status_msg = f"Transmitting {repeat} frames on {target_hz/1e6:.3f} MHz, gap={gap_s:.1f}s"
+            self.status_label.setText(status_msg)
 
             # Store hackrf instance for stopping
             self._hackrf = hackrf
