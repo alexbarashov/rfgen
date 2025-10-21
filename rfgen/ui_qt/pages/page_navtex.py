@@ -2,7 +2,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QPushButton,
     QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox, QGroupBox, QLabel, QTextEdit, QFileDialog, QCheckBox,
-    QMessageBox, QRadioButton, QButtonGroup
+    QMessageBox, QRadioButton, QButtonGroup, QScrollArea
 )
 from PySide6.QtCore import Qt
 from pathlib import Path
@@ -26,7 +26,20 @@ class PageNAVTEX(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        root = QVBoxLayout(self)
+        # Главный layout для всей страницы
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Scroll area
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        # Контейнер для содержимого
+        content = QWidget()
+        root = QVBoxLayout(content)
         root.setContentsMargins(6, 6, 6, 6)
         root.setSpacing(8)
 
@@ -220,6 +233,10 @@ class PageNAVTEX(QWidget):
         root.addWidget(self.status_label)
 
         root.addStretch()
+
+        # Установка контейнера в scroll area
+        scroll.setWidget(content)
+        main_layout.addWidget(scroll)
 
         # Auto-load default profile if exists
         self._load_default_profile()
