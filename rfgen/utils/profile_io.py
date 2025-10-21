@@ -90,13 +90,15 @@ def validate_profile(p: dict) -> tuple[bool, str]:
     # Валидация modulation type
     mod = p.get("modulation", {})
     mod_type = mod.get("type", "None")
-    if mod_type not in ("None", "AM", "FM", "PM"):
+    valid_modulations = ("None", "AM", "FM", "PM", "BPSK", "GMSK", "FSK")
+    if mod_type not in valid_modulations:
         return False, f"Invalid modulation type: '{mod_type}'"
 
     # Валидация pattern type
     pattern = p.get("pattern", {})
     pattern_type = pattern.get("type", "Tone")
-    valid_patterns = ("Tone", "Sweep", "Noise", "FF00", "F0F0", "3333", "5555")
+    valid_patterns = ("Tone", "Sweep", "Noise", "FF00", "F0F0", "3333", "5555",
+                     "406", "121", "AIS", "DSC_VHF", "DSC_HF", "NAVTEX")
     if pattern_type not in valid_patterns:
         return False, f"Invalid pattern type: '{pattern_type}'"
 

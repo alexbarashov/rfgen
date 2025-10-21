@@ -197,17 +197,49 @@ class Page406(QWidget):
 
     def _load_default_profile(self):
         """Auto-load default.json profile if it exists on startup."""
+        from ...utils.profile_io import defaults, apply_defaults
+
         default_path = profiles_dir() / "default.json"
+
+        # If default.json exists and matches this page's standard, load it
         if default_path.exists():
             data = load_json(default_path)
-            if data:
-                # Check if profile matches this page's standard
-                if data.get("standard") != "c406":
-                    return  # Wrong standard, skip loading
+            if data and data.get("standard") == "c406":
                 ok, msg = validate_profile(data)
                 if ok:
                     self._apply_profile_to_form(data)
-                    # Silently load - no status message on startup
+                    return  # Successfully loaded
+
+        # Otherwise, create default profile for c406 and apply it
+        default_profile = defaults()
+        default_profile["name"] = "default"
+        default_profile["standard"] = "c406"
+        default_profile["standard_params"] = {
+            "msg_type": "Standard Location (Hex ID)",
+            "beacon_id": "123456789ABCDEF",
+            "lat": "0.0",
+            "lon": "0.0",
+            "hex_message": "FFFED080020000007FDFFB0020B783E0F66C",
+            "phase_low": -1.1,
+            "phase_high": 1.1,
+            "front_samples": 75,
+            "fec": "BCH (Long)",
+            "interleave": True,
+            "frame_count": 1,
+        }
+        default_profile["modulation"] = {"type": "BPSK"}
+        default_profile["pattern"] = {"type": "406"}
+        default_profile["schedule"] = {"mode": "repeat", "gap_s": 0.0, "repeat": 1}
+        # Use values from profile_io.defaults() but override for c406
+        default_profile["device"]["backend"] = "hackrf"  # From general defaults
+        default_profile["device"]["tx_gain_db"] = 30  # From general defaults
+        default_profile["device"]["target_hz"] = 406040000  # 406.040 MHz
+
+        # Apply default profile to form
+        self._apply_profile_to_form(default_profile)
+
+        # Save as default.json for next time
+        save_json(default_path, default_profile)
 
     def _connect_autosave_signals(self):
         """Connect widget signals to auto-save default profile."""
@@ -336,6 +368,9 @@ class Page406(QWidget):
 
     def _apply_profile_to_form(self, p):
         """Map profile values to UI widgets."""
+        # ВАЖНО: Отключаем автосохранение на время загрузки
+        self._autosave_timer.stop()
+
         # Device
         backend = str(p.get("device", {}).get("backend", "fileout"))
         idx = self.combo_backend.findText(backend)
@@ -376,6 +411,10 @@ class Page406(QWidget):
 
         self.interleave.setChecked(bool(sp.get("interleave", True)))
         self.frame_count.setValue(int(sp.get("frame_count", 1)))
+
+        # После загрузки всех значений - триггерим автосохранение
+        # чтобы сохранить загруженный профиль в default.json
+        self._autosave_to_default()
 
     def _start_tx(self):
         """Start 406 MHz transmission."""
