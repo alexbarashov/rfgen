@@ -13,6 +13,7 @@ build/
 *.egg-info/
 
 # Пользовательские данные внутри пакета
+!/rfgen/profiles/default_*.json  # Default профили должны быть в репозитории
 /rfgen/profiles/*.json
 /rfgen/out/*
 /rfgen/logs/*

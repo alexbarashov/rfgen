@@ -1,0 +1,45 @@
+{
+  "name": "default",
+  "standard": "dsc_vhf",
+  "standard_params": {
+    "input_mode": "hex",
+    "format": "Format Specifier",
+    "address": "123456789",
+    "category": "Distress",
+    "nature": "Fire/Explosion",
+    "position": "0000.00N 00000.00E",
+    "time": "0000",
+    "telecommand": "No information",
+    "hex_message": "FFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+    "modulation_type": "AFSK",
+    "mark_hz": 2100,
+    "space_hz": 1300,
+    "baud": 1200,
+    "fm_deviation_hz": 2500,
+    "pre_emphasis": true
+  },
+  "modulation": {
+    "type": "FSK"
+  },
+  "pattern": {
+    "type": "DSC_VHF"
+  },
+  "schedule": {
+    "mode": "repeat",
+    "gap_s": 5.0,
+    "repeat": 5
+  },
+  "device": {
+    "backend": "hackrf",
+    "fs_tx": 2000000,
+    "tx_gain_db": 30,
+    "pa": false,
+    "target_hz": 156525000,
+    "if_offset_hz": 25000,
+    "freq_corr_hz": 0
+  },
+  "_meta": {
+    "created_utc": "2025-10-21T13:00:00Z",
+    "notes": "Default DSC VHF profile for Channel 70 (156.525 MHz)"
+  }
+}

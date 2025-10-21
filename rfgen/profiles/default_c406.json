@@ -1,0 +1,40 @@
+{
+  "name": "default",
+  "standard": "c406",
+  "standard_params": {
+    "input_mode": "hex",
+    "msg_type": "Standard Location (Hex ID)",
+    "beacon_id": "123456789ABCDEF",
+    "lat": "0.0",
+    "lon": "0.0",
+    "hex_message": "FFFED080020000007FDFFB0020B783E0F66C",
+    "phase_low": -1.1,
+    "phase_high": 1.1,
+    "front_samples": 75,
+    "fec": "BCH (Long)",
+    "interleave": true
+  },
+  "modulation": {
+    "type": "BPSK"
+  },
+  "pattern": {
+    "type": "406"
+  },
+  "schedule": {
+    "mode": "repeat",
+    "gap_s": 5.0,
+    "repeat": 5
+  },
+  "device": {
+    "backend": "hackrf",
+    "fs_tx": 2000000,
+    "tx_gain_db": 30,
+    "pa": false,
+    "target_hz": 406037000,
+    "if_offset_hz": 37000,
+    "freq_corr_hz": 0
+  },
+  "_meta": {
+    "created_utc": "2025-10-21T12:49:37Z"
+  }
+}

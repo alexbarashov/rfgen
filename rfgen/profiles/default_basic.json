@@ -1,0 +1,35 @@
+{
+  "name": "default",
+  "standard": "basic",
+  "standard_params": {},
+  "modulation": {
+    "type": "FM",
+    "deviation_hz": 5000,
+    "pm_index": 1.0,
+    "am_depth": 0.5
+  },
+  "pattern": {
+    "type": "Tone",
+    "tone_hz": 1000,
+    "bitrate_bps": 9600
+  },
+  "schedule": {
+    "mode": "loop",
+    "gap_s": 0.0,
+    "repeat": 1,
+    "duration_s": 1.0
+  },
+  "device": {
+    "backend": "hackrf",
+    "fs_tx": 2000000,
+    "tx_gain_db": 30,
+    "pa": false,
+    "target_hz": 162025000,
+    "if_offset_hz": 25000,
+    "freq_corr_hz": 0
+  },
+  "_meta": {
+    "created_utc": "2025-10-21T13:00:00Z",
+    "notes": "Default Basic signal generator profile - FM tone 1000 Hz"
+  }
+}

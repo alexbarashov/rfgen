@@ -1,0 +1,40 @@
+{
+  "name": "default",
+  "standard": "navtex",
+  "standard_params": {
+    "input_mode": "builder",
+    "frequency": "518",
+    "station_id": "A",
+    "msg_type": "A",
+    "msg_number": "01",
+    "message_text": "TEST NAVTEX MESSAGE",
+    "hex_message": "",
+    "modulation_type": "FSK",
+    "baud": 100,
+    "shift_hz": 170
+  },
+  "modulation": {
+    "type": "FSK"
+  },
+  "pattern": {
+    "type": "NAVTEX"
+  },
+  "schedule": {
+    "mode": "repeat",
+    "gap_s": 5.0,
+    "repeat": 3
+  },
+  "device": {
+    "backend": "hackrf",
+    "fs_tx": 2000000,
+    "tx_gain_db": 30,
+    "pa": false,
+    "target_hz": 518000,
+    "if_offset_hz": 25000,
+    "freq_corr_hz": 0
+  },
+  "_meta": {
+    "created_utc": "2025-10-21T13:00:00Z",
+    "notes": "Default NAVTEX profile for 518 kHz"
+  }
+}

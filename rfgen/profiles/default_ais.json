@@ -1,0 +1,39 @@
+{
+  "name": "default",
+  "standard": "ais",
+  "standard_params": {
+    "input_mode": "hex",
+    "channel": "A",
+    "msg_type": "Position Report (1/2/3)",
+    "mmsi": "123456789",
+    "lat": "0.0",
+    "lon": "0.0",
+    "hex_message": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+    "use_nmea": false,
+    "nmea_sentence": ""
+  },
+  "modulation": {
+    "type": "GMSK"
+  },
+  "pattern": {
+    "type": "AIS"
+  },
+  "schedule": {
+    "mode": "repeat",
+    "gap_s": 1.0,
+    "repeat": 10
+  },
+  "device": {
+    "backend": "hackrf",
+    "fs_tx": 2000000,
+    "tx_gain_db": 30,
+    "pa": false,
+    "target_hz": 162025000,
+    "if_offset_hz": 25000,
+    "freq_corr_hz": 0
+  },
+  "_meta": {
+    "created_utc": "2025-10-21T13:00:00Z",
+    "notes": "Default AIS profile for Channel A (162.025 MHz)"
+  }
+}
