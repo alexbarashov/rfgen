@@ -172,9 +172,8 @@ def _gmsk_modulate_ais(nrzi_symbols: np.ndarray, fs: int, rs: int = 9600, bt: fl
     if sps < 2:
         raise ValueError(f"Fs={fs} слишком мала для Rs={rs} (SPS={sps} < 2)")
 
-    # Upsample: повторить каждый символ SPS раз
-    # NOTE: zero insertion дает best_eye=0.000 (закрытый глаз)
-    # repeat дает best_eye=1.289 (открытый глаз)
+    # Upsample: repeat (даёт лучший eye diagram, чем zero insertion)
+    # С правильной девиацией (2400 Hz) repeat работает лучше
     symbols_up = np.repeat(nrzi_symbols.astype(np.float64), sps)
 
     # Гауссов фильтр
@@ -184,8 +183,12 @@ def _gmsk_modulate_ais(nrzi_symbols: np.ndarray, fs: int, rs: int = 9600, bt: fl
     filtered = np.convolve(symbols_up, gauss_h, mode='same')
 
     # Фазовая модуляция
-    # φ[n] = φ[n-1] + π × h × filtered[n]
-    phase = np.cumsum(np.pi * h * filtered)
+    # Девиация частоты для GMSK: Δf = h × Rs / 2
+    # Мгновенная частота: f[n] = Δf × filtered[n]
+    # Фаза: φ[n] = φ[n-1] + 2π × f[n] / Fs = φ[n-1] + 2π × Δf × filtered[n] / Fs
+    # Упрощение: φ[n] = cumsum(2π × Δf × filtered / Fs)
+    deviation_hz = h * rs / 2.0  # Для h=0.5, rs=9600 → 2400 Hz
+    phase = np.cumsum(2.0 * np.pi * deviation_hz * filtered / float(fs))
 
     # Комплексный сигнал
     iq = np.exp(1j * phase).astype(np.complex64)
