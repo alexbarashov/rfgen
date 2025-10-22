@@ -423,9 +423,14 @@ def build_ais(profile: dict) -> np.ndarray:
     fs = int(profile["device"]["fs_tx"])
 
     # Получение HEX payload (БЕЗ FCS!)
-    hex_payload = profile.get("pattern", {}).get("hex", "").strip().replace(" ", "")
+    # Сначала пытаемся из standard_params.hex_message (UI), потом из pattern.hex (тесты)
+    hex_payload = (
+        profile.get("standard_params", {}).get("hex_message", "") or
+        profile.get("pattern", {}).get("hex", "")
+    ).strip().replace(" ", "")
+
     if not hex_payload:
-        raise ValueError("AIS: HEX payload пустой")
+        raise ValueError("AIS: HEX payload пустой (проверьте standard_params.hex_message или pattern.hex)")
 
     try:
         payload_bytes = bytes.fromhex(hex_payload)
