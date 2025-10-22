@@ -4,6 +4,50 @@ import math
 
 # ==================== Вспомогательные функции для AIS ====================
 
+def _crossfade_ais(left: np.ndarray, right: np.ndarray, xfade_samples: int) -> np.ndarray:
+    """Кроссфейд между двумя секциями IQ с плавным переходом.
+
+    Использует косинусное окно (Hann) для плавного перехода амплитуды:
+    - Конец левой секции домножается на fade_out: 1 → 0
+    - Начало правой секции домножается на fade_in: 0 → 1
+    - Секции перекрываются и суммируются
+
+    Args:
+        left: Левая секция (комплексный IQ)
+        right: Правая секция (комплексный IQ)
+        xfade_samples: Длина кроссфейда в сэмплах
+
+    Returns:
+        Склеенные секции с плавным кроссфейдом
+    """
+    if xfade_samples <= 0 or len(left) == 0 or len(right) == 0:
+        return np.concatenate([left, right])
+
+    # Ограничение длины кроссфейда минимальной длиной секций
+    xfade_samples = min(xfade_samples, len(left), len(right))
+
+    if xfade_samples == 0:
+        return np.concatenate([left, right])
+
+    # Косинусное окно (Hann) для плавного перехода
+    n = np.arange(xfade_samples, dtype=np.float32)
+    fade_out = 0.5 * (1.0 + np.cos(np.pi * n / xfade_samples))  # 1 → 0
+    fade_in = 0.5 * (1.0 - np.cos(np.pi * n / xfade_samples))   # 0 → 1
+
+    # Применение окон к концу левой и началу правой секций
+    left_tail = left[-xfade_samples:] * fade_out
+    right_head = right[:xfade_samples] * fade_in
+
+    # Склейка с перекрытием
+    result = np.concatenate([
+        left[:-xfade_samples],              # Левая без хвоста
+        left_tail + right_head,             # Перекрытие с кроссфейдом
+        right[xfade_samples:]               # Правая без головы
+    ]).astype(np.complex64)
+
+    return result
+
+
 def _gen_noise_ais(n: int, noise_dbfs: float = -60.0, seed: int = 12345) -> np.ndarray:
     """Генерация комплексного белого Гауссова шума для AIS.
 
@@ -168,8 +212,8 @@ def _gaussian_filter_ais(bt: float, sps: int, span_symbols: int = 6) -> np.ndarr
     return h.astype(np.float64)
 
 
-def _gmsk_modulate_ais(nrzi_symbols: np.ndarray, fs: int, rs: int = 9600, bt: float = 0.4, h: float = 0.5) -> np.ndarray:
-    """GMSK модуляция для AIS.
+def _gmsk_modulate_ais(nrzi_symbols: np.ndarray, fs: int, rs: int = 9600, bt: float = 0.4, h: float = 0.5, warmup_symbols: int = 12) -> np.ndarray:
+    """GMSK модуляция для AIS с тёплым запуском/остыванием фильтра.
 
     Спецификация (AIS_msg_format.md раздел 3):
     - Symbol rate: 9600 baud
@@ -178,10 +222,12 @@ def _gmsk_modulate_ais(nrzi_symbols: np.ndarray, fs: int, rs: int = 9600, bt: fl
     - Частотная девиация: Δf = h × Rs / 2 = 2400 Hz
 
     Процесс:
-    1. Upsample символы (SPS = Fs/Rs)
-    2. Гауссова фильтрация (BT=0.4)
-    3. Фазовая интеграция: φ[n] = φ[n-1] + π × h × filtered[n]
-    4. Комплексный сигнал: I+jQ = exp(j×φ[n])
+    1. Добавление warmup паддинга (постоянный уровень) для теплого старта фильтра
+    2. Upsample символы (SPS = Fs/Rs)
+    3. Гауссова фильтрация (BT=0.4)
+    4. Обрезка паддинга после свёртки
+    5. Фазовая интеграция: φ[n] = φ[n-1] + π × h × filtered[n]
+    6. Комплексный сигнал: I+jQ = exp(j×φ[n])
 
     Args:
         nrzi_symbols: NRZI уровни (±1)
@@ -189,6 +235,7 @@ def _gmsk_modulate_ais(nrzi_symbols: np.ndarray, fs: int, rs: int = 9600, bt: fl
         rs: Symbol rate (baud), по умолчанию 9600
         bt: Bandwidth-time product, по умолчанию 0.4
         h: Modulation index, по умолчанию 0.5
+        warmup_symbols: Паддинг для теплого старта фильтра (символов), по умолчанию 12
 
     Returns:
         Комплексный IQ-буфер (complex64)
@@ -201,15 +248,35 @@ def _gmsk_modulate_ais(nrzi_symbols: np.ndarray, fs: int, rs: int = 9600, bt: fl
     if sps < 2:
         raise ValueError(f"Fs={fs} слишком мала для Rs={rs} (SPS={sps} < 2)")
 
+    # Warmup паддинг: добавляем постоянный уровень по краям для теплого старта фильтра
+    # "Единица" в NRZI = "без перехода" = постоянный уровень → нулевая девиация частоты
+    if warmup_symbols > 0:
+        # Левый паддинг: начальный уровень (или +1 если массив пустой)
+        start_level = float(nrzi_symbols[0]) if len(nrzi_symbols) > 0 else 1.0
+        pad_left = np.full(warmup_symbols, start_level, dtype=np.float64)
+
+        # Правый паддинг: последний уровень (для плавного остывания)
+        end_level = float(nrzi_symbols[-1]) if len(nrzi_symbols) > 0 else 1.0
+        pad_right = np.full(warmup_symbols, end_level, dtype=np.float64)
+
+        nrzi_padded = np.concatenate([pad_left, nrzi_symbols.astype(np.float64), pad_right])
+    else:
+        nrzi_padded = nrzi_symbols.astype(np.float64)
+
     # Upsample: repeat (даёт лучший eye diagram, чем zero insertion)
     # С правильной девиацией (2400 Hz) repeat работает лучше
-    symbols_up = np.repeat(nrzi_symbols.astype(np.float64), sps)
+    symbols_up = np.repeat(nrzi_padded, sps)
 
     # Гауссов фильтр
     gauss_h = _gaussian_filter_ais(bt=bt, sps=sps, span_symbols=6)
 
     # Фильтрация
     filtered = np.convolve(symbols_up, gauss_h, mode='same')
+
+    # Обрезка паддинга после свёртки (фильтр уже прогрет)
+    if warmup_symbols > 0:
+        pad_samples = warmup_symbols * sps
+        filtered = filtered[pad_samples:-pad_samples]
 
     # Фазовая модуляция
     # Девиация частоты для GMSK: Δf = h × Rs / 2
@@ -486,6 +553,15 @@ def build_ais(profile: dict) -> np.ndarray:
     # Шаг 4: Сборка полного кадра
     frame_bits = []
 
+    # Получение параметров guard из профиля (с дефолтами)
+    sp = profile.get("standard_params", {})
+    pre_guard_ones = int(sp.get("pre_guard_ones_symbols", 12))
+    post_guard_ones = int(sp.get("post_guard_ones_symbols", 24))
+
+    # Pre-guard: единицы NRZI (постоянный уровень → 0 Гц, прогрев фильтра)
+    if pre_guard_ones > 0:
+        frame_bits.extend([1] * pre_guard_ones)
+
     # Преамбула: 24 бита чередования 010101...
     frame_bits.extend([0, 1] * 12)
 
@@ -498,8 +574,10 @@ def build_ais(profile: dict) -> np.ndarray:
     # Стоп-флаг: 0x7E
     frame_bits.extend([0, 1, 1, 1, 1, 1, 1, 0])
 
-    # Буфер (guard time): 24 бита нулей
-    frame_bits.extend([0] * 24)
+    # Post-guard (guard time): единицы NRZI вместо нулей!
+    # Обоснование: "1" в NRZI → без перехода → плоская частота 0 Гц без выбросов
+    if post_guard_ones > 0:
+        frame_bits.extend([1] * post_guard_ones)
 
     frame_bits = np.array(frame_bits, dtype=np.uint8)
 
@@ -512,7 +590,9 @@ def build_ais(profile: dict) -> np.ndarray:
     rs = 9600  # Symbol rate (baud)
     # Вычисление modulation index из deviation: h = 2 × Δf / Rs
     h = (2.0 * deviation_hz) / rs
-    iq = _gmsk_modulate_ais(nrzi_symbols, fs=fs, rs=rs, bt=0.4, h=h)
+    # Warmup паддинг для гауссова фильтра (default: 12 символов)
+    gmsk_warmup = int(profile.get("standard_params", {}).get("gmsk_warmup_symbols", 12))
+    iq = _gmsk_modulate_ais(nrzi_symbols, fs=fs, rs=rs, bt=0.4, h=h, warmup_symbols=gmsk_warmup)
 
     # Шаг 7: Добавление шума и несущей до/после (как в PSK-406)
     sp = profile.get("standard_params", {})
@@ -533,8 +613,40 @@ def build_ais(profile: dict) -> np.ndarray:
     post_noise_samples = int(fs * post_noise_ms * 1e-3)
     post_noise = _gen_noise_ais(post_noise_samples, noise_dbfs=noise_dbfs) if post_noise_samples > 0 else np.zeros(0, dtype=np.complex64)
 
-    # Собираем полный сигнал: [pre_noise] → [carrier] → [GMSK message] → [post_noise]
-    iq = np.concatenate([pre_noise, carrier, iq, post_noise])
+    # Параметр кроссфейда между секциями (default: 0.75 мс)
+    xfade_ms = float(sp.get("xfade_ms", 0.75))
+    xfade_samples = int(fs * xfade_ms * 1e-3) if xfade_ms > 0 else 0
+
+    # Собираем полный сигнал с кроссфейдами:
+    # [pre_noise] ↔ [carrier] → [GMSK message] ↔ [post_noise]
+    # Кроссфейды применяются только на стыках noise↔carrier и iq↔post_noise
+    # (между carrier и iq НЕ нужен кроссфейд: carrier заканчивается на константе,
+    #  iq начинается с guard единиц → плавный переход по построению)
+
+    # 1. Pre-noise (начало)
+    if pre_noise_samples > 0:
+        iq_full = pre_noise
+    else:
+        iq_full = np.zeros(0, dtype=np.complex64)
+
+    # 2. Carrier с кроссфейдом (если есть pre_noise)
+    if carrier_samples > 0:
+        if len(iq_full) > 0 and xfade_samples > 0:
+            iq_full = _crossfade_ais(iq_full, carrier, xfade_samples)
+        else:
+            iq_full = np.concatenate([iq_full, carrier]) if len(iq_full) > 0 else carrier
+
+    # 3. IQ (GMSK message) - БЕЗ кроссфейда с carrier
+    iq_full = np.concatenate([iq_full, iq]) if len(iq_full) > 0 else iq
+
+    # 4. Post-noise с кроссфейдом
+    if post_noise_samples > 0:
+        if xfade_samples > 0:
+            iq_full = _crossfade_ais(iq_full, post_noise, xfade_samples)
+        else:
+            iq_full = np.concatenate([iq_full, post_noise])
+
+    iq = iq_full
 
     # Шаг 8: Нормализация к безопасному уровню
     max_amp = np.max(np.abs(iq))
