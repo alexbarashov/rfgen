@@ -1,16 +1,13 @@
 {
-  "name": "default",
+  "name": "default_ais",
   "standard": "ais",
   "standard_params": {
     "input_mode": "hex",
-    "channel": "A",
+    "channel": "Channel A (161.975 MHz)",
     "msg_type": "Position Report (1/2/3)",
     "mmsi": "123456789",
-    "lat": "0.0",
-    "lon": "0.0",
-    "hex_message": "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
-    "use_nmea": false,
-    "nmea_sentence": ""
+    "payload": "",
+    "hex_message": "481d6f345403ff33c8d603412140e10fff844e0006"
   },
   "modulation": {
     "type": "GMSK"
@@ -20,20 +17,19 @@
   },
   "schedule": {
     "mode": "repeat",
-    "gap_s": 1.0,
-    "repeat": 10
+    "gap_s": 5.0,
+    "repeat": 1
   },
   "device": {
-    "backend": "hackrf",
-    "fs_tx": 2000000,
+    "backend": "fileout",
+    "fs_tx": 960000,
     "tx_gain_db": 30,
     "pa": false,
-    "target_hz": 162025000,
+    "target_hz": 161975000,
     "if_offset_hz": 25000,
     "freq_corr_hz": 0
   },
   "_meta": {
-    "created_utc": "2025-10-21T13:00:00Z",
-    "notes": "Default AIS profile for Channel A (162.025 MHz)"
+    "created_utc": "2025-10-22T05:23:56Z"
   }
 }
