@@ -4,6 +4,35 @@ import math
 
 # ==================== Вспомогательные функции для AIS ====================
 
+def _gen_noise_ais(n: int, noise_dbfs: float = -60.0, seed: int = 12345) -> np.ndarray:
+    """Генерация комплексного белого Гауссова шума для AIS.
+
+    Args:
+        n: Количество сэмплов
+        noise_dbfs: Уровень шума в dBFS (default: -60 dBFS)
+        seed: Seed для воспроизводимости (default: 12345)
+
+    Returns:
+        Комплексный массив шума (complex64)
+
+    Note:
+        Аналогично _gen_noise() в psk406.py
+        RMS ~ amp_lin/√2 per I/Q channel
+    """
+    if n <= 0:
+        return np.zeros(0, dtype=np.complex64)
+
+    # Конвертация dBFS в линейную амплитуду
+    amp_lin = 10.0 ** (noise_dbfs / 20.0)
+
+    # Генерация Гауссова шума
+    rng = np.random.default_rng(seed)
+    noise_i = rng.normal(0.0, amp_lin / np.sqrt(2.0), size=n).astype(np.float32)
+    noise_q = rng.normal(0.0, amp_lin / np.sqrt(2.0), size=n).astype(np.float32)
+
+    return (noise_i + 1j * noise_q).astype(np.complex64)
+
+
 def _crc16_x25_ais(data: bytes) -> int:
     """Вычисление CRC-16/X25 для AIS (HDLC FCS).
 
@@ -396,11 +425,11 @@ def build_ais(profile: dict) -> np.ndarray:
     Реализовано согласно спецификации AIS_msg_format.md (версия 1.1).
 
     Структура кадра:
-    ┌─────────────┬────────────┬─────────────────────┬────────────┬────────────┐
-    │  Преамбула  │ Старт-флаг │  Payload + FCS      │  Стоп-флаг │   Буфер    │
-    │   24 бита   │   0x7E     │  168+16+N бит       │    0x7E    │  24 бита   │
-    │  (0101...)  │  (8 бит)   │  (с bit-stuffing!)  │  (8 бит)   │  (нули)    │
-    └─────────────┴────────────┴─────────────────────┴────────────┴────────────┘
+    ┌──────────┬──────────┬─────────────┬────────────┬────────────────┬────────────┬────────┬──────────┐
+    │ Pre-noise│ Несущая  │  Преамбула  │ Старт-флаг │  Payload+FCS   │  Стоп-флаг │ Буфер  │Post-noise│
+    │  10 мс   │  2 мс    │  24 бита    │   0x7E     │  168+16+N бит  │    0x7E    │24 бита │  10 мс   │
+    │ -60dBFS  │ (AGC)    │  (0101...)  │  (8 бит)   │(bit-stuffing!) │  (8 бит)   │(нули)  │ -60dBFS  │
+    └──────────┴──────────┴─────────────┴────────────┴────────────────┴────────────┴────────┴──────────┘
 
     Процесс:
     1. Парсинг HEX payload → биты (LSB-first)
@@ -409,14 +438,17 @@ def build_ais(profile: dict) -> np.ndarray:
     4. Сборка кадра: преамбула + флаг + stuffed + флаг + буфер
     5. NRZI кодирование всего кадра
     6. GMSK модуляция (h=0.5, BT=0.4, 9600 baud)
+    7. Добавление pre-noise, carrier, post-noise (аналогично PSK-406)
 
     Args:
         profile: Профиль с параметрами:
-            - pattern['hex']: HEX-строка payload (БЕЗ FCS), например 21 байт
-            - device['fs_tx']: Частота дискретизации (рекомендуется ≥960 кГц)
-            - standard_params['deviation_hz']: Девиация частоты GMSK (default: 2400 Hz)
-            - schedule['pre_s']: Тишина до кадра (по умолчанию 0.02)
-            - schedule['post_s']: Тишина после кадра (по умолчанию 0.02)
+            - pattern['hex'] или standard_params['hex_message']: HEX-строка payload (БЕЗ FCS)
+            - device['fs_tx']: Частота дискретизации (рекомендуется кратная 9600 Hz)
+            - standard_params['deviation_hz']: Девиация GMSK (default: 2400 Hz)
+            - standard_params['pre_noise_ms']: Шум до сообщения (default: 10.0 мс)
+            - standard_params['carrier_ms']: Несущая перед сообщением (default: 2.0 мс)
+            - standard_params['post_noise_ms']: Шум после сообщения (default: 10.0 мс)
+            - standard_params['noise_dbfs']: Уровень шума (default: -60.0 dBFS)
 
     Returns:
         IQ-буфер (complex64) с GMSK модуляцией
@@ -482,17 +514,27 @@ def build_ais(profile: dict) -> np.ndarray:
     h = (2.0 * deviation_hz) / rs
     iq = _gmsk_modulate_ais(nrzi_symbols, fs=fs, rs=rs, bt=0.4, h=h)
 
-    # Шаг 7: Добавление тишины до/после
-    pre_s = float(profile.get("schedule", {}).get("pre_s", 0.02))
-    post_s = float(profile.get("schedule", {}).get("post_s", 0.02))
+    # Шаг 7: Добавление шума и несущей до/после (как в PSK-406)
+    sp = profile.get("standard_params", {})
+    pre_noise_ms = float(sp.get("pre_noise_ms", 10.0))   # 10 мс шума до
+    carrier_ms = float(sp.get("carrier_ms", 2.0))         # 2 мс несущей
+    post_noise_ms = float(sp.get("post_noise_ms", 10.0)) # 10 мс шума после
+    noise_dbfs = float(sp.get("noise_dbfs", -60.0))      # -60 dBFS
 
-    pre_samples = int(fs * pre_s)
-    post_samples = int(fs * post_s)
+    # Pre-noise
+    pre_noise_samples = int(fs * pre_noise_ms * 1e-3)
+    pre_noise = _gen_noise_ais(pre_noise_samples, noise_dbfs=noise_dbfs) if pre_noise_samples > 0 else np.zeros(0, dtype=np.complex64)
 
-    if pre_samples > 0:
-        iq = np.concatenate([np.zeros(pre_samples, dtype=np.complex64), iq])
-    if post_samples > 0:
-        iq = np.concatenate([iq, np.zeros(post_samples, dtype=np.complex64)])
+    # Carrier (несущая перед сообщением для AGC приёмника)
+    carrier_samples = int(fs * carrier_ms * 1e-3)
+    carrier = np.ones(carrier_samples, dtype=np.complex64) if carrier_samples > 0 else np.zeros(0, dtype=np.complex64)
+
+    # Post-noise
+    post_noise_samples = int(fs * post_noise_ms * 1e-3)
+    post_noise = _gen_noise_ais(post_noise_samples, noise_dbfs=noise_dbfs) if post_noise_samples > 0 else np.zeros(0, dtype=np.complex64)
+
+    # Собираем полный сигнал: [pre_noise] → [carrier] → [GMSK message] → [post_noise]
+    iq = np.concatenate([pre_noise, carrier, iq, post_noise])
 
     # Шаг 8: Нормализация к безопасному уровню
     max_amp = np.max(np.abs(iq))

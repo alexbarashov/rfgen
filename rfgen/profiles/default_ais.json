@@ -8,7 +8,11 @@
     "mmsi": "123456789",
     "payload": "",
     "hex_message": "481d6f345403ff33c8d603412140e10fff844e0006",
-    "deviation_hz": 2400.0
+    "deviation_hz": 2400.0,
+    "pre_noise_ms": 10.0,
+    "carrier_ms": 2.0,
+    "post_noise_ms": 10.0,
+    "noise_dbfs": -60.0
   },
   "modulation": {
     "type": "GMSK"
@@ -23,7 +27,7 @@
   },
   "device": {
     "backend": "hackrf",
-    "fs_tx": 2000000,
+    "fs_tx": 960000,
     "tx_gain_db": 30,
     "pa": false,
     "target_hz": 161975000,
@@ -31,6 +35,6 @@
     "freq_corr_hz": 0
   },
   "_meta": {
-    "created_utc": "2025-10-22T06:30:02Z"
+    "created_utc": "2025-10-22T07:18:42Z"
   }
 }
