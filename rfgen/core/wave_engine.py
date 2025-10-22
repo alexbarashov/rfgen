@@ -1,4 +1,195 @@
 import numpy as np
+import math
+
+
+# ==================== Вспомогательные функции для AIS ====================
+
+def _crc16_x25_ais(data: bytes) -> int:
+    """Вычисление CRC-16/X25 для AIS (HDLC FCS).
+
+    Спецификация (AIS_msg_format.md раздел 4):
+    - Полином: 0x8408 (reflected CCITT)
+    - Init: 0xFFFF
+    - XOR out: 0xFFFF
+    - Применяется к payload БЕЗ bit-stuffing
+
+    Args:
+        data: Payload байты
+
+    Returns:
+        16-битное CRC значение
+    """
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 1:
+                crc = (crc >> 1) ^ 0x8408
+            else:
+                crc >>= 1
+    crc ^= 0xFFFF
+    return crc & 0xFFFF
+
+
+def _bytes_to_bits_lsb_first_ais(data: bytes) -> np.ndarray:
+    """Конвертация байтов в биты (LSB-first для AIS).
+
+    Спецификация (AIS_msg_format.md раздел 4.3):
+    - В эфире биты передаются LSB-first внутри каждого байта
+    - Пример: 0x7E (01111110) → биты: 0,1,1,1,1,1,1,0
+
+    Args:
+        data: Байты для конвертации
+
+    Returns:
+        Массив битов (0/1)
+    """
+    bits = []
+    for byte in data:
+        for i in range(8):
+            bits.append((byte >> i) & 1)  # LSB first
+    return np.array(bits, dtype=np.uint8)
+
+
+def _bit_stuff_ais(bits: np.ndarray) -> np.ndarray:
+    """HDLC bit-stuffing для AIS.
+
+    Спецификация (AIS_msg_format.md раздел 2.2):
+    - Применяется ТОЛЬКО к полю Payload + FCS
+    - Правило: после 5 подряд единиц вставить 0
+    - НЕ применяется к преамбуле и флагам!
+
+    Args:
+        bits: Биты payload+FCS
+
+    Returns:
+        Биты с вставленными stuffing битами
+    """
+    stuffed = []
+    ones_count = 0
+    for bit in bits:
+        stuffed.append(int(bit))
+        if bit == 1:
+            ones_count += 1
+            if ones_count == 5:
+                stuffed.append(0)  # Stuffed bit
+                ones_count = 0
+        else:
+            ones_count = 0
+    return np.array(stuffed, dtype=np.uint8)
+
+
+def _nrzi_encode_ais(bits: np.ndarray) -> np.ndarray:
+    """NRZI кодирование для AIS.
+
+    Спецификация (AIS_msg_format.md раздел 2.3):
+    - Бит 0 → переход уровня (от +1 к -1 или от -1 к +1)
+    - Бит 1 → нет перехода (уровень остаётся прежним)
+    - Начальное состояние: +1
+
+    Пример:
+        Биты:        0  1  1  1  1  1  1  0
+        NRZI уровни: -1 -1 -1 -1 -1 -1 -1 +1
+                     ↓  =  =  =  =  =  =  ↓
+
+    Args:
+        bits: Биты для кодирования
+
+    Returns:
+        NRZI уровни (±1)
+    """
+    nrzi = []
+    level = 1  # Начальное состояние: +1
+    for bit in bits:
+        if bit == 0:
+            level = -level  # Переход
+        # else: level не меняется (бит 1 → без перехода)
+        nrzi.append(level)
+    return np.array(nrzi, dtype=np.int8)
+
+
+def _gaussian_filter_ais(bt: float, sps: int, span_symbols: int = 6) -> np.ndarray:
+    """Генерация гауссова фильтра для GMSK.
+
+    Спецификация (AIS_msg_format.md раздел 3.2):
+    - BT = 0.4 для TX
+    - Формула: h[t] = exp(-0.5 × (t/σ)²)
+    - σ = Ts × BT / (π × √(2×ln(2)))
+
+    Args:
+        bt: Bandwidth-time product (0.4 для AIS TX)
+        sps: Samples per symbol
+        span_symbols: Длина фильтра в символах (4-6)
+
+    Returns:
+        Нормализованные коэффициенты фильтра
+    """
+    taps = span_symbols * sps
+    t_axis = np.arange(-taps // 2, taps // 2 + 1) / float(sps)
+
+    # Sigma согласно спецификации
+    sigma = bt / (math.pi * math.sqrt(2.0 * math.log(2.0)))
+
+    # Гауссово ядро
+    h = np.exp(-0.5 * (t_axis / sigma) ** 2)
+
+    # Нормализация
+    h = h / np.sum(h)
+
+    return h.astype(np.float64)
+
+
+def _gmsk_modulate_ais(nrzi_symbols: np.ndarray, fs: int, rs: int = 9600, bt: float = 0.4, h: float = 0.5) -> np.ndarray:
+    """GMSK модуляция для AIS.
+
+    Спецификация (AIS_msg_format.md раздел 3):
+    - Symbol rate: 9600 baud
+    - BT: 0.4
+    - Modulation index h: 0.5
+    - Частотная девиация: Δf = h × Rs / 2 = 2400 Hz
+
+    Процесс:
+    1. Upsample символы (SPS = Fs/Rs)
+    2. Гауссова фильтрация (BT=0.4)
+    3. Фазовая интеграция: φ[n] = φ[n-1] + π × h × filtered[n]
+    4. Комплексный сигнал: I+jQ = exp(j×φ[n])
+
+    Args:
+        nrzi_symbols: NRZI уровни (±1)
+        fs: Частота дискретизации (Hz)
+        rs: Symbol rate (baud), по умолчанию 9600
+        bt: Bandwidth-time product, по умолчанию 0.4
+        h: Modulation index, по умолчанию 0.5
+
+    Returns:
+        Комплексный IQ-буфер (complex64)
+    """
+    if len(nrzi_symbols) == 0:
+        return np.array([], dtype=np.complex64)
+
+    # Samples per symbol
+    sps = int(fs / rs)
+    if sps < 2:
+        raise ValueError(f"Fs={fs} слишком мала для Rs={rs} (SPS={sps} < 2)")
+
+    # Upsample: повторить каждый символ SPS раз
+    # Согласно спецификации раздел 5.2 строка 321
+    symbols_up = np.repeat(nrzi_symbols.astype(np.float64), sps)
+
+    # Гауссов фильтр
+    gauss_h = _gaussian_filter_ais(bt=bt, sps=sps, span_symbols=6)
+
+    # Фильтрация
+    filtered = np.convolve(symbols_up, gauss_h, mode='same')
+
+    # Фазовая модуляция
+    # φ[n] = φ[n-1] + π × h × filtered[n]
+    phase = np.cumsum(np.pi * h * filtered)
+
+    # Комплексный сигнал
+    iq = np.exp(1j * phase).astype(np.complex64)
+
+    return iq
 
 
 # ==================== Вспомогательные функции для PSK-406 ====================
@@ -195,6 +386,107 @@ def build_psk406(profile: dict) -> np.ndarray:
     return sig
 
 
+def build_ais(profile: dict) -> np.ndarray:
+    """Генерация AIS IQ-буфера с полным HDLC framing и GMSK модуляцией.
+
+    Реализовано согласно спецификации AIS_msg_format.md (версия 1.1).
+
+    Структура кадра:
+    ┌─────────────┬────────────┬─────────────────────┬────────────┬────────────┐
+    │  Преамбула  │ Старт-флаг │  Payload + FCS      │  Стоп-флаг │   Буфер    │
+    │   24 бита   │   0x7E     │  168+16+N бит       │    0x7E    │  24 бита   │
+    │  (0101...)  │  (8 бит)   │  (с bit-stuffing!)  │  (8 бит)   │  (нули)    │
+    └─────────────┴────────────┴─────────────────────┴────────────┴────────────┘
+
+    Процесс:
+    1. Парсинг HEX payload → биты (LSB-first)
+    2. Вычисление CRC-16/X25 → добавление FCS
+    3. Bit-stuffing payload+FCS
+    4. Сборка кадра: преамбула + флаг + stuffed + флаг + буфер
+    5. NRZI кодирование всего кадра
+    6. GMSK модуляция (h=0.5, BT=0.4, 9600 baud)
+
+    Args:
+        profile: Профиль с параметрами:
+            - pattern['hex']: HEX-строка payload (БЕЗ FCS), например 21 байт
+            - device['fs_tx']: Частота дискретизации (рекомендуется ≥1.024 МГц)
+            - schedule['pre_s']: Тишина до кадра (по умолчанию 0.02)
+            - schedule['post_s']: Тишина после кадра (по умолчанию 0.02)
+
+    Returns:
+        IQ-буфер (complex64) с GMSK модуляцией
+
+    Raises:
+        ValueError: Если HEX payload пустой или некорректный
+    """
+    fs = int(profile["device"]["fs_tx"])
+
+    # Получение HEX payload (БЕЗ FCS!)
+    hex_payload = profile.get("pattern", {}).get("hex", "").strip().replace(" ", "")
+    if not hex_payload:
+        raise ValueError("AIS: HEX payload пустой")
+
+    try:
+        payload_bytes = bytes.fromhex(hex_payload)
+    except Exception as e:
+        raise ValueError(f"AIS: некорректный HEX payload: {e}")
+
+    # Шаг 1: Вычисление CRC-16/X25 (применяется к payload БЕЗ bit-stuffing)
+    fcs = _crc16_x25_ais(payload_bytes)
+    fcs_bytes = fcs.to_bytes(2, 'little')  # LSB-first (младший байт первым)
+
+    # Шаг 2: Конвертация payload+FCS в биты (LSB-first)
+    bits_payload_fcs = _bytes_to_bits_lsb_first_ais(payload_bytes + fcs_bytes)
+
+    # Шаг 3: Bit-stuffing (ТОЛЬКО для payload+FCS)
+    bits_stuffed = _bit_stuff_ais(bits_payload_fcs)
+
+    # Шаг 4: Сборка полного кадра
+    frame_bits = []
+
+    # Преамбула: 24 бита чередования 010101...
+    frame_bits.extend([0, 1] * 12)
+
+    # Старт-флаг: 0x7E = 01111110
+    frame_bits.extend([0, 1, 1, 1, 1, 1, 1, 0])
+
+    # Stuffed payload + FCS
+    frame_bits.extend(bits_stuffed)
+
+    # Стоп-флаг: 0x7E
+    frame_bits.extend([0, 1, 1, 1, 1, 1, 1, 0])
+
+    # Буфер (guard time): 24 бита нулей
+    frame_bits.extend([0] * 24)
+
+    frame_bits = np.array(frame_bits, dtype=np.uint8)
+
+    # Шаг 5: NRZI кодирование всего кадра
+    nrzi_symbols = _nrzi_encode_ais(frame_bits)
+
+    # Шаг 6: GMSK модуляция
+    iq = _gmsk_modulate_ais(nrzi_symbols, fs=fs, rs=9600, bt=0.4, h=0.5)
+
+    # Шаг 7: Добавление тишины до/после
+    pre_s = float(profile.get("schedule", {}).get("pre_s", 0.02))
+    post_s = float(profile.get("schedule", {}).get("post_s", 0.02))
+
+    pre_samples = int(fs * pre_s)
+    post_samples = int(fs * post_s)
+
+    if pre_samples > 0:
+        iq = np.concatenate([np.zeros(pre_samples, dtype=np.complex64), iq])
+    if post_samples > 0:
+        iq = np.concatenate([iq, np.zeros(post_samples, dtype=np.complex64)])
+
+    # Шаг 8: Нормализация к безопасному уровню
+    max_amp = np.max(np.abs(iq))
+    if max_amp > 0.8:
+        iq = iq * (0.8 / max_amp)
+
+    return iq
+
+
 def build_iq(profile: dict, frame_s: float = 1.0):
     """
     Генерация IQ-буфера на основе профиля.
@@ -207,6 +499,10 @@ def build_iq(profile: dict, frame_s: float = 1.0):
     # PSK-406: специальная обработка
     if standard in ("c406", "psk406"):
         return build_psk406(profile)
+
+    # AIS: специальная обработка (HDLC + GMSK)
+    if standard == "ais":
+        return build_ais(profile)
 
     # 121.5 MHz AM: специальная обработка (как PSK-406 по расписанию/loop)
     if standard == "121":
