@@ -335,7 +335,7 @@ class PageDSC_HF(QWidget):
     def _start_fileout(self, prof):
         """Generate and save DSC HF to file."""
         from ...standards.dsc_hf import build_dsc_hf
-        from ...utils.paths import profiles_dir
+        from ...utils.paths import out_dir
         from ...utils.cf32_naming import generate_cf32_name
         import numpy as np
 
@@ -349,7 +349,7 @@ class PageDSC_HF(QWidget):
             # Generate default filename with Fs (convention: iq_<FSk>_dsc_hf.cf32)
             fs_tx = prof["device"]["fs_tx"]
             default_filename = generate_cf32_name(fs_tx, "dsc_hf")
-            default_path = str(profiles_dir() / default_filename)
+            default_path = str(out_dir() / default_filename)
 
             # Save to file
             file_path, _ = QFileDialog.getSaveFileName(

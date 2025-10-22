@@ -323,7 +323,7 @@ class PageNAVTEX(QWidget):
     def _start_fileout(self, prof):
         """Generate and save NAVTEX signal to file."""
         from ...core.wave_engine import build_iq
-        from ...utils.paths import profiles_dir
+        from ...utils.paths import out_dir
         from ...utils.cf32_naming import generate_cf32_name
         import numpy as np
 
@@ -337,7 +337,7 @@ class PageNAVTEX(QWidget):
             # Generate default filename with Fs (convention: iq_<FSk>_navtex.cf32)
             fs_tx = prof["device"]["fs_tx"]
             default_filename = generate_cf32_name(fs_tx, "navtex")
-            default_path = str(profiles_dir() / default_filename)
+            default_path = str(out_dir() / default_filename)
 
             # Save to file
             file_path, _ = QFileDialog.getSaveFileName(

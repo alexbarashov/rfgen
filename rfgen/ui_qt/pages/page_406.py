@@ -567,7 +567,7 @@ class Page406(QWidget):
     def _start_fileout(self, prof):
         """Generate and save to file."""
         from ...standards.psk406 import generate_psk406
-        from ...utils.paths import profiles_dir
+        from ...utils.paths import out_dir
         from ...utils.cf32_naming import generate_cf32_name
         import numpy as np
 
@@ -581,7 +581,7 @@ class Page406(QWidget):
             # Generate default filename with Fs (convention: iq_<FSk>_<name>.cf32)
             fs_tx = prof["device"]["fs_tx"]
             default_filename = generate_cf32_name(fs_tx, "psk406")
-            default_path = str(profiles_dir() / default_filename)
+            default_path = str(out_dir() / default_filename)
 
             # Save to file
             from PySide6.QtWidgets import QFileDialog
