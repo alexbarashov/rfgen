@@ -450,10 +450,11 @@ class Page121(QWidget):
                     tx_gain_db,
                     pa_enabled=pa_enable,
                     if_offset_hz=if_offset_hz,
-                    freq_corr_hz=freq_corr_hz
+                    freq_corr_hz=freq_corr_hz,
+                    mode="loop"
                 )
             else:
-                # Repeat mode: file already contains N repetitions
+                # Repeat mode: file already contains N repetitions, play once without -R
                 self._hackrf_backend.run_loop(
                     temp_path,
                     fs_tx,
@@ -461,7 +462,10 @@ class Page121(QWidget):
                     tx_gain_db,
                     pa_enabled=pa_enable,
                     if_offset_hz=if_offset_hz,
-                    freq_corr_hz=freq_corr_hz
+                    freq_corr_hz=freq_corr_hz,
+                    mode="repeat",
+                    repeat=1,  # File already contains N repetitions
+                    gap_s=0.0  # Gap already built into file
                 )
 
             # Update UI
