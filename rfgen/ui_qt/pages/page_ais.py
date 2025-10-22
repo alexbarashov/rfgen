@@ -484,7 +484,7 @@ class PageAIS(QWidget):
         from ...backends.hackrf import HackRFTx
         from ...utils.paths import out_dir, logs_dir
         from ...utils.cf32_naming import generate_cf32_name
-        from ...core.resample import resample_iq
+        from ...core.resample import resample
         import numpy as np
 
         try:
@@ -502,7 +502,7 @@ class PageAIS(QWidget):
             # If we want to support different baseband rates in future:
             # fs_baseband = prof.get("device", {}).get("fs_baseband", fs_tx)
             # if fs_baseband != fs_tx:
-            #     iq_tx = resample_iq(iq_baseband, fs_baseband, fs_tx)
+            #     iq_tx = resample(iq_baseband, fs_baseband, fs_tx)
             # else:
             #     iq_tx = iq_baseband
             iq_tx = iq_baseband

@@ -378,7 +378,7 @@ class PageDSC_HF(QWidget):
         from ...backends.hackrf import HackRFTx
         from ...utils.paths import out_dir, logs_dir
         from ...utils.cf32_naming import generate_cf32_name
-        from ...core.resample import resample_iq
+        from ...core.resample import resample
         import numpy as np
 
         try:
