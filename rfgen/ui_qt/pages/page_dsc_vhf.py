@@ -414,7 +414,7 @@ class PageDSC_VHF(QWidget):
 
             # Run transmission
             self._hackrf_backend.run_loop(
-                str(temp_path),
+                temp_path,
                 fs_tx,
                 center_hz,
                 tx_gain_db,

@@ -432,7 +432,7 @@ class PageNAVTEX(QWidget):
             if mode == "loop":
                 # Loop mode: use -R flag for infinite repeat
                 self._hackrf_backend.run_loop(
-                    str(temp_path),
+                    temp_path,
                     fs_tx,
                     center_hz,
                     tx_gain_db,
@@ -443,7 +443,7 @@ class PageNAVTEX(QWidget):
             else:
                 # Repeat mode: file already contains N repetitions
                 self._hackrf_backend.run_loop(
-                    str(temp_path),
+                    temp_path,
                     fs_tx,
                     center_hz,
                     tx_gain_db,
