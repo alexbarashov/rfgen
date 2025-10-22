@@ -85,11 +85,11 @@ def _nrzi_encode_ais(bits: np.ndarray) -> np.ndarray:
     Спецификация (AIS_msg_format.md раздел 2.3):
     - Бит 0 → переход уровня (от +1 к -1 или от -1 к +1)
     - Бит 1 → нет перехода (уровень остаётся прежним)
-    - Начальное состояние: +1
+    - Начальное состояние: -1 (экспериментально, было +1)
 
     Пример:
         Биты:        0  1  1  1  1  1  1  0
-        NRZI уровни: -1 -1 -1 -1 -1 -1 -1 +1
+        NRZI уровни: +1 +1 +1 +1 +1 +1 +1 -1
                      ↓  =  =  =  =  =  =  ↓
 
     Args:
@@ -173,7 +173,8 @@ def _gmsk_modulate_ais(nrzi_symbols: np.ndarray, fs: int, rs: int = 9600, bt: fl
         raise ValueError(f"Fs={fs} слишком мала для Rs={rs} (SPS={sps} < 2)")
 
     # Upsample: повторить каждый символ SPS раз
-    # Согласно спецификации раздел 5.2 строка 321
+    # NOTE: zero insertion дает best_eye=0.000 (закрытый глаз)
+    # repeat дает best_eye=1.289 (открытый глаз)
     symbols_up = np.repeat(nrzi_symbols.astype(np.float64), sps)
 
     # Гауссов фильтр
