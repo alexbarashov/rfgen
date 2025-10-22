@@ -7,7 +7,8 @@
     "msg_type": "Position Report (1/2/3)",
     "mmsi": "123456789",
     "payload": "",
-    "hex_message": "481d6f345403ff33c8d603412140e10fff844e0006"
+    "hex_message": "481d6f345403ff33c8d603412140e10fff844e0006",
+    "deviation_hz": 2400
   },
   "modulation": {
     "type": "GMSK"

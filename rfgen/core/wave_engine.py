@@ -413,7 +413,8 @@ def build_ais(profile: dict) -> np.ndarray:
     Args:
         profile: Профиль с параметрами:
             - pattern['hex']: HEX-строка payload (БЕЗ FCS), например 21 байт
-            - device['fs_tx']: Частота дискретизации (рекомендуется ≥1.024 МГц)
+            - device['fs_tx']: Частота дискретизации (рекомендуется ≥960 кГц)
+            - standard_params['deviation_hz']: Девиация частоты GMSK (default: 2400 Hz)
             - schedule['pre_s']: Тишина до кадра (по умолчанию 0.02)
             - schedule['post_s']: Тишина после кадра (по умолчанию 0.02)
 
@@ -474,7 +475,12 @@ def build_ais(profile: dict) -> np.ndarray:
     nrzi_symbols = _nrzi_encode_ais(frame_bits)
 
     # Шаг 6: GMSK модуляция
-    iq = _gmsk_modulate_ais(nrzi_symbols, fs=fs, rs=9600, bt=0.4, h=0.5)
+    # Получение deviation_hz из профиля (default: 2400 Hz согласно ITU-R M.1371)
+    deviation_hz = float(profile.get("standard_params", {}).get("deviation_hz", 2400))
+    rs = 9600  # Symbol rate (baud)
+    # Вычисление modulation index из deviation: h = 2 × Δf / Rs
+    h = (2.0 * deviation_hz) / rs
+    iq = _gmsk_modulate_ais(nrzi_symbols, fs=fs, rs=rs, bt=0.4, h=h)
 
     # Шаг 7: Добавление тишины до/после
     pre_s = float(profile.get("schedule", {}).get("pre_s", 0.02))

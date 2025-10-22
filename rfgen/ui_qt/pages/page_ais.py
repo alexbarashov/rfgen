@@ -78,6 +78,18 @@ class PageAIS(QWidget):
         rf_form.addRow("Freq corr (Hz)", self.freq_corr_hz)
         root.addWidget(rf_group)
 
+        # Modulation group
+        mod_group = QGroupBox("Modulation (GMSK)")
+        mod_form = QFormLayout(mod_group)
+        self.deviation_hz = QDoubleSpinBox()
+        self.deviation_hz.setRange(100, 10000)  # 0.1 - 10 кГц
+        self.deviation_hz.setSingleStep(100)
+        self.deviation_hz.setValue(2400)  # Default: 2400 Hz (ITU-R M.1371)
+        self.deviation_hz.setSuffix(" Hz")
+        self.deviation_hz.setToolTip("Frequency deviation for GMSK (ITU-R M.1371: 2400 Hz)")
+        mod_form.addRow("Deviation (Hz)", self.deviation_hz)
+        root.addWidget(mod_group)
+
         # Channel selection
         channel_group = QGroupBox("Channel Configuration")
         channel_layout = QFormLayout()
@@ -277,6 +289,7 @@ class PageAIS(QWidget):
                 "mmsi": self.mmsi.text(),
                 "payload": self.payload_input.toPlainText(),
                 "hex_message": self.hex_message.text(),
+                "deviation_hz": float(self.deviation_hz.value()),
             },
             "modulation": {
                 "type": "GMSK",
@@ -383,6 +396,9 @@ class PageAIS(QWidget):
         self.mmsi.setText(str(sp.get("mmsi", "123456789")))
         self.payload_input.setPlainText(str(sp.get("payload", "")))
         self.hex_message.setText(str(sp.get("hex_message", "")))
+
+        # Modulation params
+        self.deviation_hz.setValue(float(sp.get("deviation_hz", 2400)))
 
         # Input mode (hex or builder)
         input_mode = str(sp.get("input_mode", "hex"))
