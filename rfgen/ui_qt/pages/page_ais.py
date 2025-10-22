@@ -424,7 +424,7 @@ class PageAIS(QWidget):
 
     def _start_fileout(self, prof):
         """Generate and save AIS to file."""
-        from ...standards.ais import build_ais
+        from ...core.wave_engine import build_ais
         from ...utils.paths import profiles_dir
         from ...utils.cf32_naming import generate_cf32_name
         import numpy as np
@@ -464,7 +464,7 @@ class PageAIS(QWidget):
 
     def _start_hackrf(self, prof):
         """Generate and transmit AIS via HackRF."""
-        from ...standards.ais import build_ais
+        from ...core.wave_engine import build_ais
         from ...backends.hackrf import HackRFTx
         from ...utils.paths import out_dir, logs_dir
         from ...utils.cf32_naming import generate_cf32_name

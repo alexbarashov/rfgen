@@ -182,14 +182,22 @@ def _decode_6bit_ascii(payload_6bit: str) -> np.ndarray:
     return np.array(bits, dtype=np.uint8)
 
 
-def build_ais(profile: dict) -> np.ndarray:
-    """Генерация AIS IQ-буфера из профиля.
+def build_ais_legacy(profile: dict) -> np.ndarray:
+    """DEPRECATED: Старая реализация AIS без HDLC framing.
+
+    ⚠️ НЕ ИСПОЛЬЗУЙТЕ! Используйте core.wave_engine.build_ais() вместо этого.
+
+    Эта версия НЕ включает:
+    - HDLC framing (преамбула, флаги)
+    - Bit-stuffing
+    - CRC-16/X25
+    - NRZI encoding
 
     Args:
         profile: Профиль с параметрами AIS
 
     Returns:
-        IQ-буфер (complex64) с GMSK модуляцией
+        IQ-буфер (complex64) с простой GMSK модуляцией (БЕЗ правильного framing!)
     """
     fs = int(profile["device"]["fs_tx"])
     std_params = profile.get("standard_params", {})
@@ -261,5 +269,5 @@ def build_ais(profile: dict) -> np.ndarray:
 
 # Обратная совместимость (старая заглушка)
 def generate_ais_test(params):
-    """Deprecated: используйте build_ais(profile) вместо этого."""
-    return build_ais(params)
+    """DEPRECATED: используйте core.wave_engine.build_ais() вместо этого."""
+    return build_ais_legacy(params)
