@@ -453,7 +453,7 @@ class PageDSC_HF(QWidget):
                     fs_tx,
                     center_hz,
                     tx_gain_db,
-                    pa_enable=pa_enable,
+                    pa_enabled=pa_enable,
                     if_offset_hz=if_offset_hz,
                     freq_corr_hz=freq_corr_hz
                 )
@@ -464,7 +464,7 @@ class PageDSC_HF(QWidget):
                     fs_tx,
                     center_hz,
                     tx_gain_db,
-                    pa_enable=pa_enable,
+                    pa_enabled=pa_enable,
                     if_offset_hz=if_offset_hz,
                     freq_corr_hz=freq_corr_hz
                 )

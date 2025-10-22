@@ -8,7 +8,7 @@
     "mmsi": "123456789",
     "payload": "",
     "hex_message": "481d6f345403ff33c8d603412140e10fff844e0006",
-    "deviation_hz": 2400
+    "deviation_hz": 2400.0
   },
   "modulation": {
     "type": "GMSK"
@@ -19,11 +19,11 @@
   "schedule": {
     "mode": "repeat",
     "gap_s": 5.0,
-    "repeat": 1
+    "repeat": 5
   },
   "device": {
-    "backend": "fileout",
-    "fs_tx": 960000,
+    "backend": "hackrf",
+    "fs_tx": 2000000,
     "tx_gain_db": 30,
     "pa": false,
     "target_hz": 161975000,
@@ -31,6 +31,6 @@
     "freq_corr_hz": 0
   },
   "_meta": {
-    "created_utc": "2025-10-22T05:23:56Z"
+    "created_utc": "2025-10-22T06:30:02Z"
   }
 }
