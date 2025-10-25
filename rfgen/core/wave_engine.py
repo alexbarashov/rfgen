@@ -30,9 +30,11 @@ def _crossfade_ais(left: np.ndarray, right: np.ndarray, xfade_samples: int) -> n
         return np.concatenate([left, right])
 
     # Косинусное окно (Hann) для плавного перехода
+    # Используем (N-1) вместо N для точного fade_out → 0 на последнем отсчёте
     n = np.arange(xfade_samples, dtype=np.float32)
-    fade_out = 0.5 * (1.0 + np.cos(np.pi * n / xfade_samples))  # 1 → 0
-    fade_in = 0.5 * (1.0 - np.cos(np.pi * n / xfade_samples))   # 0 → 1
+    den = max(1, xfade_samples - 1)  # защита от N=1
+    fade_out = 0.5 * (1.0 + np.cos(np.pi * n / den))  # 1 → 0 точно
+    fade_in = 0.5 * (1.0 - np.cos(np.pi * n / den))   # 0 → 1 точно
 
     # Применение окон к концу левой и началу правой секций
     left_tail = left[-xfade_samples:] * fade_out
@@ -555,7 +557,8 @@ def build_ais(profile: dict) -> np.ndarray:
 
     # Получение параметров guard из профиля (с дефолтами)
     sp = profile.get("standard_params", {})
-    pre_guard_ones = int(sp.get("pre_guard_ones_symbols", 12))
+    # Увеличены значения для лучшего прогрева фильтра (см. 2025-10-25_TT_AIS_TX_RAMP.md)
+    pre_guard_ones = int(sp.get("pre_guard_ones_symbols", 16))
     post_guard_ones = int(sp.get("post_guard_ones_symbols", 24))
 
     # Pre-guard: единицы NRZI (постоянный уровень → 0 Гц, прогрев фильтра)
@@ -590,8 +593,8 @@ def build_ais(profile: dict) -> np.ndarray:
     rs = 9600  # Symbol rate (baud)
     # Вычисление modulation index из deviation: h = 2 × Δf / Rs
     h = (2.0 * deviation_hz) / rs
-    # Warmup паддинг для гауссова фильтра (default: 12 символов)
-    gmsk_warmup = int(profile.get("standard_params", {}).get("gmsk_warmup_symbols", 12))
+    # Warmup паддинг для гауссова фильтра (увеличено до 16 для лучшего прогрева)
+    gmsk_warmup = int(profile.get("standard_params", {}).get("gmsk_warmup_symbols", 16))
     iq = _gmsk_modulate_ais(nrzi_symbols, fs=fs, rs=rs, bt=0.4, h=h, warmup_symbols=gmsk_warmup)
 
     # Шаг 7: Добавление шума и несущей до/после (как в PSK-406)
@@ -613,8 +616,8 @@ def build_ais(profile: dict) -> np.ndarray:
     post_noise_samples = int(fs * post_noise_ms * 1e-3)
     post_noise = _gen_noise_ais(post_noise_samples, noise_dbfs=noise_dbfs) if post_noise_samples > 0 else np.zeros(0, dtype=np.complex64)
 
-    # Параметр кроссфейда между секциями (default: 0.75 мс)
-    xfade_ms = float(sp.get("xfade_ms", 0.75))
+    # Параметр кроссфейда между секциями (увеличен до 1.0 мс для лучшего перехода)
+    xfade_ms = float(sp.get("xfade_ms", 1.0))
     xfade_samples = int(fs * xfade_ms * 1e-3) if xfade_ms > 0 else 0
 
     # Собираем полный сигнал с кроссфейдами:

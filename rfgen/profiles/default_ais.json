@@ -12,7 +12,11 @@
     "pre_noise_ms": 10.0,
     "carrier_ms": 2.0,
     "post_noise_ms": 10.0,
-    "noise_dbfs": -60.0
+    "noise_dbfs": -60.0,
+    "pre_guard_ones_symbols": 16,
+    "post_guard_ones_symbols": 24,
+    "gmsk_warmup_symbols": 16,
+    "xfade_ms": 1.0
   },
   "modulation": {
     "type": "GMSK"
