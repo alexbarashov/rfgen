@@ -174,25 +174,28 @@ if __name__ == "__main__":
 from typing import List
 
 def _symbol_to_primary7(sym: int) -> np.ndarray:
+    """7 инфо-битов MSB-first: b6,b5,...,b0."""
     if not (0 <= sym <= 127):
         raise ValueError("Symbol out of range 0..127")
-    return np.array([(sym >> i) & 1 for i in range(7)], dtype=np.uint8)
+    return np.array([ (sym >> k) & 1 for k in range(6, -1, -1) ], dtype=np.uint8)
 
 def _primary7_to_tenbit(info7: np.ndarray) -> np.ndarray:
+    """Добавить 3-битный zero-count (MSB-first) к 7 MSB-first битам."""
     zeros = 7 - int(info7.sum())
-    chk = np.array([(zeros >> 2) & 1, (zeros >> 1) & 1, zeros & 1], dtype=np.uint8)
+    chk = np.array([ (zeros >> 2) & 1, (zeros >> 1) & 1, zeros & 1 ], dtype=np.uint8)
     return np.concatenate([info7, chk])
 
 def _symbols_to_tenbits(symbols: List[int]) -> List[np.ndarray]:
     return [_primary7_to_tenbit(_symbol_to_primary7(s)) for s in symbols]
 
-def _build_phasing_symbols() -> List[int]:
-    rx_seq = [111,110,109,108,107,106,105,104]
-    seq = []
-    for i in range(6):
-        seq.append(125)
-        seq.append(rx_seq[i])
-    return seq
+def _build_dotting(n: int = 120) -> List[int]:
+    """Dotting: повтор символа 126."""
+    return [126] * n
+
+def _build_phasing_rx(repeats: int = 2) -> List[int]:
+    """Phasing (RX): 111..104, повторить repeats раз."""
+    base = [111,110,109,108,107,106,105,104]
+    return base * repeats
 
 def _time_diversity_schedule(payload_syms: List[int]) -> List[int]:
     out: List[int] = []
@@ -210,13 +213,16 @@ def _time_diversity_schedule(payload_syms: List[int]) -> List[int]:
             out.append(rx_queue.pop(0))
     return out
 
-def _build_dsc_frame(primary_symbols: List[int], eos_symbol: int = 127, include_eos: bool = True) -> List[int]:
-    phasing = _build_phasing_symbols()
+def _build_dsc_frame(primary_symbols: List[int], fs_symbol: int, eos_symbol: int = 127, include_eos: bool = True) -> List[int]:
+    # Dotting + Phasing
+    prefix = _build_dotting(120) + _build_phasing_rx(2)
+    # Обязательное дублирование FS
+    header = [fs_symbol, fs_symbol]
     payload = list(primary_symbols)
     if include_eos:
         payload.append(eos_symbol)
-    td = _time_diversity_schedule(payload)
-    return phasing + td
+    # (Time diversity можно временно отключить, чтобы не мешал проверке на приёмнике)
+    return prefix + header + payload
 
 def _digits_to_symbols(digits: str) -> List[int]:
     s = ''.join(ch for ch in digits if ch.isdigit())
@@ -253,7 +259,8 @@ def _afsk_from_bits(bits: np.ndarray, fs: float, baud: float, f_low: float, f_hi
     return out
 
 def build_dsc_bits(primary_symbols: List[int], eos_symbol:int=127) -> np.ndarray:
-    seq_syms = _build_dsc_frame(primary_symbols, eos_symbol=eos_symbol, include_eos=True)
+    fs_symbol = primary_symbols[0]
+    seq_syms = _build_dsc_frame(primary_symbols[1:], fs_symbol=fs_symbol, eos_symbol=eos_symbol, include_eos=True)
     tenbits = _symbols_to_tenbits(seq_syms)
     bits = _tenbits_to_bitstream(tenbits)
     return bits.astype(np.uint8)
@@ -299,20 +306,23 @@ def build_primary_symbols_from_cfg(dsc_cfg: dict) -> List[int]:
     fmt = dsc_cfg.get("format_symbol", None)
     if fmt is None:
         if scenario == "individual":
-            fmt = 120
+            fmt = 115   # или 123
         elif scenario == "distress":
-            fmt = 112  # placeholder; override via format_symbol if needed
+            fmt = 112
         else:
-            fmt = 112  # all_ships default
+            fmt = 116   # all_ships default
 
-    mmsi = str(dsc_cfg.get("mmsi", "111222333"))
-    addr = _mmsi_to_symbols(mmsi)
+    mmsi_to = str(dsc_cfg.get("mmsi", "111222333"))
+    addr = _mmsi_to_symbols(mmsi_to)
+    mmsi_from = str(dsc_cfg.get("mmsi_from", "999888777"))
+    self_id = _mmsi_to_symbols(mmsi_from)
+    category = dsc_cfg.get("category_symbol", 100)  # 100=Routine
 
     tele = dsc_cfg.get("telecommand_symbols", None)
     if tele is None:
         tele = [126, 126]  # neutral placeholders
 
-    primary = [int(fmt)] + [int(x) for x in addr] + [int(x) for x in tele]
+    primary = [int(fmt)] + [int(x) for x in addr] + [int(category)] + [int(x) for x in self_id] + [int(x) for x in tele]
     return primary
 
 
