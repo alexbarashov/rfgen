@@ -17,7 +17,7 @@ class PageDSC_VHF(QWidget):
 
     Features:
     - Channel 70 (156.525 MHz)
-    - FSK modulation (170 Hz shift, 100 Bd)
+    - AFSK modulation (1300/2100 Hz, 1200 Bd)
     - Distress, urgency, safety, routine calls
     - ITU-R M.493 compliance
     - Test mode with patterns
@@ -49,7 +49,7 @@ class PageDSC_VHF(QWidget):
         root.addWidget(header)
 
         # Channel info
-        info = QLabel("📡 Channel 70: 156.525 MHz | FSK: 100 Bd, ±85 Hz")
+        info = QLabel("📡 Channel 70: 156.525 MHz | AFSK: 1200 Bd, 1300/2100 Hz")
         info.setStyleSheet("background: #e3f2fd; padding: 6px; border-radius: 4px;")
         root.addWidget(info)
 
