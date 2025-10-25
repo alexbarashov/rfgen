@@ -158,10 +158,23 @@ rfgen/
     - Crossfade между шумом и несущей, сообщением и шумом
     - Модуляционный индекс h = 2·Δf/Rs (обычно Δf=2400 Hz → h=0.5)
     - Параметры настраиваются через `standard_params`: `deviation_hz`, `xfade_ms`, `pre_guard_ones_symbols`, etc.
-- **dsc_vhf.py**, **dsc_hf.py**: Digital Selective Calling
-  - VHF/HF диапазоны
-  - Настроечные тоны/AFSK непрерывно, затем кадры сообщений
-  - Builder → framer → (A)FSK/MSK mapper
+- **dsc_common.py**: Общий модуль DSC framing (ITU-R M.493)
+  - 10-bit encoding (7 info bits + 3 error check bits)
+  - Dotting/phasing sequences
+  - Frame assembly (dotting + phasing + FS + payload + EOS)
+  - Unified Builder API: `build_primary_symbols_from_cfg()`, `build_dsc_bits()`
+  - Используется в dsc_vhf.py и dsc_hf.py
+- **dsc_vhf.py**: Digital Selective Calling VHF (Ch70, 156.525 MHz)
+  - **Параметры**: 1200 Bd, AFSK 1300/2100 Hz, FM девиация 2500 Hz
+  - **Carrier**: 1.2 ms
+  - Поддержка Builder режима (общий API из dsc_common)
+  - Builder → 10-bit DSC → AFSK → FM → pre/carrier/post
+- **dsc_hf.py**: Digital Selective Calling HF (2187.5 kHz и др.)
+  - **Параметры**: 100 Bd, FSK shift 170 Hz (±85 Hz)
+  - **Carrier**: 20 ms
+  - **Режимы**: F1B (прямой FSK) или J2B (AFSK для SSB)
+  - Поддержка Builder режима (общий API из dsc_common)
+  - Builder → 10-bit DSC → FSK → pre/carrier/post
 - **navtex.py**: Навигационные телекс-сообщения
   - SITOR-B encode → FSK mapper
   - Baud=100, shift=170 Hz
