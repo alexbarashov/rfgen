@@ -215,7 +215,7 @@ def build_dsc_hf(profile: dict) -> np.ndarray:
             "center_hz": sp.get("center_hz", 0.0),
             "mode": sp.get("mode", "F1B"),
             "pre_silence_ms": sp.get("pre_silence_ms", 25.0),
-            "carrier_sec": sp.get("carrier_sec", 0.0),
+            "carrier_sec": sp.get("carrier_sec", 0.020),  # 20 ms per ITU-R M.493
             "post_silence_ms": sp.get("post_silence_ms", 25.0),
             "noise_dbfs": sp.get("noise_dbfs", -60.0),
             "normalize": sp.get("normalize", True),
@@ -264,7 +264,7 @@ def generate_dsc_hf(params: Dict[str, Any]) -> np.ndarray:
 
     pre_ms = float(sp.get("pre_silence_ms", 25.0))
     post_ms = float(sp.get("post_silence_ms", 25.0))
-    carrier_sec = float(sp.get("carrier_sec", 0.0))
+    carrier_sec = float(sp.get("carrier_sec", 0.020))  # 20 ms per ITU-R M.493
     noise_dbfs = float(sp.get("noise_dbfs", -60.0))
     normalize = bool(sp.get("normalize", True))
     save_path = sp.get("save_path", None)

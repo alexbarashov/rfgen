@@ -80,7 +80,7 @@ def generate_dsc_vhf(params: Dict[str, Any]) -> np.ndarray:
     f_space = float(sp.get("f_space_hz", 1300.0))
     pre_ms = float(sp.get("pre_silence_ms", 25.0))
     post_ms = float(sp.get("post_silence_ms", 25.0))
-    carrier_sec = float(sp.get("carrier_sec", 0.16))
+    carrier_sec = float(sp.get("carrier_sec", 0.0012))  # 1.2 ms per ITU-R M.493
     fm_dev_hz = float(sp.get("fm_dev_hz", 2500.0))
     preemph = bool(sp.get("preemphasis", False))
     noise_dbfs = float(sp.get("noise_dbfs", -60.0))

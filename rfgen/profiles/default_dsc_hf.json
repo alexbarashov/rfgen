@@ -14,7 +14,13 @@
     "hex_message": "FFFFFFFFFFFFFFFFFFFFFFFFFFFF",
     "modulation_type": "F1B",
     "baud": 100,
-    "shift_hz": 170
+    "shift_hz": 170,
+    "carrier_sec": 0.020,
+    "pre_silence_ms": 25.0,
+    "post_silence_ms": 25.0,
+    "symbol_rate": 100.0,
+    "center_hz": 0.0,
+    "mode": "F1B"
   },
   "modulation": {
     "type": "FSK"

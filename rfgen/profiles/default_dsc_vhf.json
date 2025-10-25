@@ -1,22 +1,23 @@
 {
-  "name": "default",
+  "name": "default_dsc_vhf",
   "standard": "dsc_vhf",
   "standard_params": {
     "input_mode": "hex",
-    "format": "Format Specifier",
-    "address": "123456789",
     "category": "Distress",
+    "call_type": "All Ships",
+    "mmsi_from": "123456789",
+    "mmsi_to": "987654321",
     "nature": "Fire/Explosion",
     "position": "0000.00N 00000.00E",
-    "time": "0000",
-    "telecommand": "No information",
-    "hex_message": "FFFFFFFFFFFFFFFFFFFFFFFFFFFF",
-    "modulation_type": "AFSK",
-    "mark_hz": 2100,
-    "space_hz": 1300,
-    "baud": 1200,
-    "fm_deviation_hz": 2500,
-    "pre_emphasis": true
+    "utc_time": "0000",
+    "hex_message": "fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1fc7f1de772dab63d6b53d2f44e8fa301c0701c0701f2401c0701c0701ff80\n",
+    "carrier_sec": 0.0012,
+    "pre_silence_ms": 25.0,
+    "post_silence_ms": 25.0,
+    "fm_dev_hz": 2500.0,
+    "symbol_rate": 1200.0,
+    "f_mark_hz": 2100.0,
+    "f_space_hz": 1300.0
   },
   "modulation": {
     "type": "FSK"
@@ -39,7 +40,6 @@
     "freq_corr_hz": 0
   },
   "_meta": {
-    "created_utc": "2025-10-21T13:00:00Z",
-    "notes": "Default DSC VHF profile for Channel 70 (156.525 MHz)"
+    "created_utc": "2025-10-25T10:53:29Z"
   }
 }
