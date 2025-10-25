@@ -6,6 +6,9 @@
 import numpy as np
 from typing import Dict, Any, Optional
 
+# Import common DSC framing functions
+from .dsc_common import build_dsc_bits, build_primary_symbols_from_cfg
+
 def _dbfs_to_linear(dbfs: float) -> float:
     return 10.0 ** (dbfs / 20.0)
 
@@ -171,11 +174,16 @@ if __name__ == "__main__":
 
 def build_dsc_hf(profile: dict) -> np.ndarray:
     """
-    Обёртка для генерации DSC HF IQ-буфера из профиля.
+    DSC HF IQ buffer generation with unified Builder API.
 
     Поддерживает два режима ввода:
     - "hex": прямой ввод HEX-строки
-    - "builder": сборка сообщения из полей (MVP: генерация тестового payload)
+    - "builder": сборка сообщения из полей через общий DSC Builder
+
+    ВАЖНО: DSC HF использует правильные параметры ITU-R M.493:
+    - Скорость: 100 бод
+    - FSK shift: 170 Hz (±85 Hz)
+    - Режим: F1B (прямой FSK) или J2B (AFSK для SSB)
 
     Args:
         profile: словарь профиля с полями standard_params, device
@@ -187,35 +195,47 @@ def build_dsc_hf(profile: dict) -> np.ndarray:
     input_mode = sp.get("input_mode", "hex")
 
     # Определяем hex_message в зависимости от режима
-    if input_mode == "hex":
-        hex_message = sp.get("hex_message", "D5AA55D5AA55")
-    elif input_mode == "builder":
-        # MVP: генерируем тестовый payload
-        # В будущем здесь будет полноценный encoder ITU-R M.493/M.541
-        # Пока используем простой тестовый HEX
-        category = sp.get("category", "distress")
-        call_type = sp.get("call_type", "all_ships")
-        mmsi_from = sp.get("mmsi_from", "123456789")
-        mmsi_to = sp.get("mmsi_to", "000000000")
+    if input_mode == "builder":
+        # Используем общий Builder (как в DSC VHF)
+        dsc_cfg = {
+            "scenario": sp.get("call_type", "all_ships").lower().replace(" ", "_"),
+            "mmsi": sp.get("mmsi_to", "111222333"),
+            "mmsi_from": sp.get("mmsi_from", "999888777"),
+            "format_symbol": sp.get("format_symbol", None),
+            "category_symbol": sp.get("category_symbol", 100),
+            "telecommand_symbols": sp.get("telecommand_symbols", [126, 126]),
+        }
 
-        # Простой тестовый payload (будет заменён на настоящий encoder)
-        hex_message = "D5AA55D5AA55"  # Placeholder
-        print(f"[DSC HF Builder] MVP режим: category={category}, call_type={call_type}, from={mmsi_from}, to={mmsi_to}")
-        print(f"[DSC HF Builder] Используется тестовый HEX: {hex_message}")
+        # Собираем primary symbols через общий Builder
+        primary_symbols = build_primary_symbols_from_cfg(dsc_cfg)
+        eos_symbol = int(sp.get("eos_symbol", 127))
+
+        # Конвертируем в битовый поток через общий encoder
+        bits = build_dsc_bits(primary_symbols, eos_symbol=eos_symbol)
+
+        # Упаковываем биты в HEX для передачи в генератор
+        nbytes = (bits.size + 7) // 8
+        padded = np.zeros(nbytes * 8, dtype=np.uint8)
+        padded[:bits.size] = bits
+        hex_message = np.packbits(padded).tobytes().hex().upper()
+
+    elif input_mode == "hex":
+        hex_message = sp.get("hex_message", "D5AA55D5AA55")
     else:
         raise ValueError(f"Неизвестный input_mode: {input_mode}")
 
-    # Подготавливаем параметры для генератора
+    # Подготавливаем параметры для HF генератора
+    # ВАЖНО: используем правильные HF параметры (100 Bd, ±85 Hz)
     params = {
         "device": profile.get("device", {}),
         "standard_params": {
             "hex_message": hex_message,
-            "symbol_rate": sp.get("symbol_rate", 100.0),
-            "shift_hz": sp.get("shift_hz", 170.0),
+            "symbol_rate": sp.get("symbol_rate", 100.0),  # HF: 100 бод
+            "shift_hz": sp.get("shift_hz", 170.0),  # HF: ±85 Hz
             "center_hz": sp.get("center_hz", 0.0),
             "mode": sp.get("mode", "F1B"),
             "pre_silence_ms": sp.get("pre_silence_ms", 25.0),
-            "carrier_sec": sp.get("carrier_sec", 0.020),  # 20 ms per ITU-R M.493
+            "carrier_sec": sp.get("carrier_sec", 0.020),  # HF: 20 ms per ITU-R M.493
             "post_silence_ms": sp.get("post_silence_ms", 25.0),
             "noise_dbfs": sp.get("noise_dbfs", -60.0),
             "normalize": sp.get("normalize", True),
@@ -223,7 +243,7 @@ def build_dsc_hf(profile: dict) -> np.ndarray:
         }
     }
 
-    # Генерируем IQ
+    # Генерируем IQ с правильными HF параметрами
     return generate_dsc_hf(params)
 
 

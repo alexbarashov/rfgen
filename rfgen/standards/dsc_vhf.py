@@ -5,6 +5,9 @@
 import numpy as np
 from typing import Dict, Any, Optional
 
+# Import common DSC framing functions
+from .dsc_common import build_dsc_bits, build_primary_symbols_from_cfg
+
 def _dbfs_to_linear(dbfs: float) -> float:
     return 10.0 ** (dbfs / 20.0)
 
@@ -146,6 +149,9 @@ def generate_dsc_vhf(params: Dict[str, Any]) -> np.ndarray:
     return sig
 
 
+# Note: Low-level DSC framing functions moved to dsc_common.py for reuse in DSC HF
+# The functions below are kept for backward compatibility but now import from dsc_common
+
 if __name__ == "__main__":
     # Quick self-test file generation (optional)
     params = {
@@ -170,160 +176,10 @@ if __name__ == "__main__":
     print({"samples": int(iq.size), "fs": int(params["device"]["fs_tx"]), "path": "/mnt/data/dsc_cf32.iq"})
 
 # -----------------------------
-# DSC framing per ITU‑R M.493 (skeleton)
-from typing import List
-
-def _symbol_to_primary7(sym: int) -> np.ndarray:
-    """7 инфо-битов MSB-first: b6,b5,...,b0."""
-    if not (0 <= sym <= 127):
-        raise ValueError("Symbol out of range 0..127")
-    return np.array([ (sym >> k) & 1 for k in range(6, -1, -1) ], dtype=np.uint8)
-
-def _primary7_to_tenbit(info7: np.ndarray) -> np.ndarray:
-    """Добавить 3-битный zero-count (MSB-first) к 7 MSB-first битам."""
-    zeros = 7 - int(info7.sum())
-    chk = np.array([ (zeros >> 2) & 1, (zeros >> 1) & 1, zeros & 1 ], dtype=np.uint8)
-    return np.concatenate([info7, chk])
-
-def _symbols_to_tenbits(symbols: List[int]) -> List[np.ndarray]:
-    return [_primary7_to_tenbit(_symbol_to_primary7(s)) for s in symbols]
-
-def _build_dotting(n: int = 120) -> List[int]:
-    """Dotting: повтор символа 126."""
-    return [126] * n
-
-def _build_phasing_rx(repeats: int = 2) -> List[int]:
-    """Phasing (RX): 111..104, повторить repeats раз."""
-    base = [111,110,109,108,107,106,105,104]
-    return base * repeats
-
-def _time_diversity_schedule(payload_syms: List[int]) -> List[int]:
-    out: List[int] = []
-    rx_queue: List[int] = []
-    for s in payload_syms:
-        out.append(s)
-        rx_queue.append(s)
-        if len(rx_queue) > 4:
-            out.append(rx_queue.pop(0))
-    while rx_queue:
-        if len(rx_queue) > 4:
-            out.append(rx_queue.pop(0))
-        else:
-            out.append(125)
-            out.append(rx_queue.pop(0))
-    return out
-
-def _build_dsc_frame(primary_symbols: List[int], fs_symbol: int, eos_symbol: int = 127, include_eos: bool = True) -> List[int]:
-    # Dotting + Phasing
-    prefix = _build_dotting(120) + _build_phasing_rx(2)
-    # Обязательное дублирование FS
-    header = [fs_symbol, fs_symbol]
-    payload = list(primary_symbols)
-    if include_eos:
-        payload.append(eos_symbol)
-    # (Time diversity можно временно отключить, чтобы не мешал проверке на приёмнике)
-    return prefix + header + payload
-
-def _digits_to_symbols(digits: str) -> List[int]:
-    s = ''.join(ch for ch in digits if ch.isdigit())
-    if len(s) % 2 == 1:
-        s += '0'
-    return [int(s[i:i+2]) for i in range(0, len(s), 2)]
-
-def _build_test_all_ships_sequence(mmsi:str="111222333") -> List[int]:
-    fmt = 112
-    addr = _digits_to_symbols(mmsi)
-    tele = [126,126]
-    return [fmt] + addr + tele
-
-def _tenbits_to_bitstream(chars10: List[np.ndarray]) -> np.ndarray:
-    if not chars10:
-        return np.zeros(0, np.uint8)
-    return np.concatenate(chars10).astype(np.uint8)
-
-def _afsk_from_bits(bits: np.ndarray, fs: float, baud: float, f_low: float, f_high: float, one_is_low: bool=True) -> np.ndarray:
-    if bits.size == 0:
-        return np.zeros(0, np.float32)
-    sym_N = int(round(fs / baud))
-    t = (np.arange(sym_N, dtype=np.float32) / fs).astype(np.float32)
-    out = np.empty(bits.size * sym_N, dtype=np.float32)
-    idx = 0
-    for b in bits:
-        if one_is_low:
-            f = f_low if b==1 else f_high
-        else:
-            f = f_high if b==1 else f_low
-        tone = np.sin(2.0 * np.pi * f * t, dtype=np.float32)
-        out[idx:idx+sym_N] = tone
-        idx += sym_N
-    return out
-
-def build_dsc_bits(primary_symbols: List[int], eos_symbol:int=127) -> np.ndarray:
-    fs_symbol = primary_symbols[0]
-    seq_syms = _build_dsc_frame(primary_symbols[1:], fs_symbol=fs_symbol, eos_symbol=eos_symbol, include_eos=True)
-    tenbits = _symbols_to_tenbits(seq_syms)
-    bits = _tenbits_to_bitstream(tenbits)
-    return bits.astype(np.uint8)
+# NOTE: DSC framing functions have been moved to dsc_common.py
+# They are now shared between DSC VHF and DSC HF
+# Import them from dsc_common at the top of this file
 # -----------------------------
-
-# =============================
-# High-level DSC primary-symbol builders (lab-friendly, overrideable)
-# =============================
-
-def _mmsi_to_symbols(mmsi: str) -> List[int]:
-    """Convert MMSI string (digits only) to 5 two-digit symbols (pads with leading zeros)."""
-    s = ''.join(ch for ch in mmsi if ch.isdigit())
-    s = s.zfill(9)  # MMSI is 9 digits; address area often uses 10 digits incl. leading 0 -> we pair digits
-    # For DSC addressing, digits are typically sent in pairs as 00..99 symbols.
-    # We will left-pad to even length and split by 2.
-    if len(s) % 2 == 1:
-        s = '0' + s
-    pairs = [int(s[i:i+2]) for i in range(0, len(s), 2)]
-    # Ensure exactly 5 symbols
-    if len(pairs) < 5:
-        pairs = [0]*(5-len(pairs)) + pairs
-    elif len(pairs) > 5:
-        pairs = pairs[-5:]
-    return pairs
-
-def build_primary_symbols_from_cfg(dsc_cfg: dict) -> List[int]:
-    """
-    Build primary symbol list from a flexible config.
-    Priority: explicit 'primary_symbols' -> scenario helpers -> minimal All Ships.
-    dsc_cfg fields (optional):
-      - primary_symbols: explicit list[int] 0..127 (highest priority)
-      - scenario: 'all_ships' | 'individual' | 'distress' (lab presets)
-      - format_symbol: int (default per scenario: 112 for 'all_ships', 120 for 'individual', 112 for 'distress')
-      - mmsi: target MMSI string
-      - telecommand_symbols: list[int] extras appended after address (e.g., 126,126 as fillers)
-    """
-    # 1) Direct override
-    ps = dsc_cfg.get("primary_symbols", None)
-    if isinstance(ps, (list, tuple)) and len(ps) > 0:
-        return [int(x) for x in ps]
-
-    scenario = str(dsc_cfg.get("scenario", "all_ships")).lower()
-    fmt = dsc_cfg.get("format_symbol", None)
-    if fmt is None:
-        if scenario == "individual":
-            fmt = 115   # или 123
-        elif scenario == "distress":
-            fmt = 112
-        else:
-            fmt = 116   # all_ships default
-
-    mmsi_to = str(dsc_cfg.get("mmsi", "111222333"))
-    addr = _mmsi_to_symbols(mmsi_to)
-    mmsi_from = str(dsc_cfg.get("mmsi_from", "999888777"))
-    self_id = _mmsi_to_symbols(mmsi_from)
-    category = dsc_cfg.get("category_symbol", 100)  # 100=Routine
-
-    tele = dsc_cfg.get("telecommand_symbols", None)
-    if tele is None:
-        tele = [126, 126]  # neutral placeholders
-
-    primary = [int(fmt)] + [int(x) for x in addr] + [int(category)] + [int(x) for x in self_id] + [int(x) for x in tele]
-    return primary
 
 
 # =============================
