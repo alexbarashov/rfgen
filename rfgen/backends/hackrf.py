@@ -96,6 +96,7 @@ class HackRFTx:
         self.log_path: Path | None = None
         self.cmdline: list[str] | None = None
 
+
     def _create_log(self) -> Path:
         """Создаём путь к лог-файлу и инициализируем его."""
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -121,34 +122,38 @@ class HackRFTx:
 
     def run_loop(self, iq_path: Path, fs_tx: int, target_hz: int, tx_gain_db: int,
                  if_offset_hz: int = 0, freq_corr_hz: int = 0, pa_enabled: bool = False,
-                 mode: str = "loop", repeat: int = 1, gap_s: float = 0.0):
+                 mode: str = "loop", gap_s: float = 0.0):
         """
-        Стартуем hackrf_transfer в режиме loop или repeat.
+        Запуск hackrf_transfer (CLEAN IMPLEMENTATION - без конкатенаций).
 
         Параметры:
-        - iq_path: путь к IQ-файлу (cf32 или sc8)
+        - iq_path: путь к IQ-файлу (cf32 или sc8) - ОДИН КАДР
         - fs_tx: частота дискретизации TX (Гц)
         - target_hz: целевая RF частота (Гц) - то, что должно выйти в эфир
         - tx_gain_db: TX gain (dB), 0..47
         - if_offset_hz: IF смещение (Гц), по умолчанию 0
         - freq_corr_hz: частотная коррекция (Гц), по умолчанию 0
         - pa_enabled: включить PA (флаг -a 1)
-        - mode: "loop" (бесконечный повтор) или "repeat" (N кадров)
-        - repeat: количество повторений (только для mode="repeat")
-        - gap_s: пауза между кадрами в секундах
+        - mode: "loop" (с -R флагом) или "once" (без -R, один запуск)
+        - gap_s: длительность gap в секундах (добавляется в конец кадра)
 
-        Процесс:
-        1. Вычисляем center_hz = target_hz + if_offset_hz + freq_corr_hz (частота LO)
-        2. Вычисляем digital_shift_hz = -(if_offset_hz + freq_corr_hz) (компенсация)
-        3. Определяем формат файла (cf32 или sc8)
-        4. Если cf32: читаем, применяем цифровой сдвиг, рассчитываем метрики, конвертируем в sc8
-        5. Если sc8: используем напрямую (обратная совместимость, без сдвига)
-        6. Для mode=="loop": запускаем с -R (gap встроен в кадр генератором)
-        7. Для mode=="repeat": конкатенируем (frame + gap) * repeat, запускаем без -R
-        8. Логируем всё в лог-файл
+        АРХИТЕКТУРА (2025-10-25-TT-AIS_TX_buffer.md):
 
-        Инвариант: RF = center_hz + digital_shift_hz = target_hz
+        mode="loop":
+          - Один кадр + gap в temp файл
+          - hackrf_transfer с флагом -R (бесконечный повтор)
+
+        mode="once":
+          - Один кадр + gap в temp файл
+          - hackrf_transfer БЕЗ флага -R (один shot)
+          - UI вызывает этот метод N раз для repeat=N
+
+        НЕТ конкатенации (frame+gap)*N!
+
+        Инвариант: RF = (target + if_offset + freq_corr) + digital_shift = target
         """
+        self.current_run = 1
+        self.total_runs = 1
         if self.is_running():
             raise RuntimeError("HackRF already running")
 
@@ -185,29 +190,23 @@ class HackRFTx:
             sc8_path = iq_path
             sc8_bytes = sc8_path.read_bytes()
 
-        # 3. Обработка режима передачи
-        if mode == "repeat":
-            # Режим Finite: создаём конкатенацию (frame + gap) * repeat
-            frame_sc8 = sc8_bytes
-            gap_samples = int(round(gap_s * fs_tx))
-            gap_sc8 = b"\x00" * (gap_samples * 2)  # sc8: 2 байта на сэмпл (I,Q)
+        # 3. Добавление gap (если задан)
+        gap_samples = int(round(gap_s * fs_tx))
+        gap_sc8 = b"\x00" * (gap_samples * 2) if gap_samples > 0 else b""  # sc8: 2 bytes per sample
 
-            # Конкатенация
-            concat_sc8 = (frame_sc8 + gap_sc8) * repeat
+        # Финальный буфер: кадр + gap
+        sc8_bytes_final = sc8_bytes + gap_sc8
 
-            # Сохраняем во временный файл
-            temp_sc8_path = sc8_path.with_name(sc8_path.stem + "_repeat.sc8")
-            with open(temp_sc8_path, "wb") as f:
-                f.write(concat_sc8)
+        # 4. Сохраняем в temp файл
+        suffix = "_loop" if mode == "loop" else "_once"
+        temp_sc8_path = sc8_path.with_name(sc8_path.stem + suffix + ".sc8")
+        with open(temp_sc8_path, "wb") as f:
+            f.write(sc8_bytes_final)
 
-            sc8_path_final = temp_sc8_path
-            sc8_bytes_final = concat_sc8
-            use_loop_flag = False  # Без -R
-        else:
-            # Режим Loop: используем один кадр с встроенным gap
-            sc8_path_final = sc8_path
-            sc8_bytes_final = sc8_bytes
-            use_loop_flag = True  # С -R
+        sc8_path_final = temp_sc8_path
+
+        # 5. Определяем, использовать ли флаг -R
+        use_loop_flag = (mode == "loop")
 
         # 4. Формируем команду для hackrf_transfer
         cmd = [
@@ -276,13 +275,12 @@ class HackRFTx:
         self._log("")
         self._log(f"=== Schedule ===")
         self._log(f"Mode: {mode}")
-        self._log(f"Repeat: {repeat}")
         self._log(f"Gap: {gap_s} s")
         self._log(f"Loop flag (-R): {use_loop_flag}")
-        if mode == "repeat" and repeat > 1:
-            frame_duration_s = len(sc8_bytes) / (fs_tx * 2)  # sc8: 2 bytes per sample
-            total_duration_s = repeat * (frame_duration_s + gap_s)
-            self._log(f"Estimated TX duration: {total_duration_s:.2f} s")
+        frame_duration_s = len(sc8_bytes) / (fs_tx * 2)  # sc8: 2 bytes per sample
+        run_duration_s = frame_duration_s + gap_s
+        self._log(f"Frame duration: {frame_duration_s:.3f} s")
+        self._log(f"Run duration (frame+gap): {run_duration_s:.3f} s")
         self._log("")
 
         # Валидация: предупреждение если peak близок к нулю (только для cf32)

@@ -645,8 +645,11 @@ class Page406(QWidget):
             # Schedule parameters
             schedule = prof.get("schedule", {})
             mode = schedule.get("mode", "loop")
-            repeat = int(schedule.get("repeat", 1))
+            repeat = int(schedule.get("repeat", 1))  # TODO: implement N sequential runs
             gap_s = float(schedule.get("gap_s", 8.0))
+
+            # NEW API: mode="loop" or "once", backend adds gap
+            tx_mode = "loop" if mode == "loop" else "once"
 
             hackrf.run_loop(
                 iq_path=temp_path,
@@ -656,8 +659,7 @@ class Page406(QWidget):
                 if_offset_hz=int(if_offset_hz),
                 freq_corr_hz=int(freq_corr_hz),
                 pa_enabled=pa_enabled,
-                mode=mode,
-                repeat=repeat,
+                mode=tx_mode,  # NEW: "loop" or "once"
                 gap_s=gap_s
             )
 
