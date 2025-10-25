@@ -48,6 +48,11 @@ class PageDSC_HF(QWidget):
         header.setStyleSheet("font-size: 14pt;")
         root.addWidget(header)
 
+        # Frequency info
+        info = QLabel("📡 HF DSC: 2187.5 kHz (primary) | FSK: 100 Bd, ±85 Hz")
+        info.setStyleSheet("background: #e3f2fd; padding: 6px; border-radius: 4px;")
+        root.addWidget(info)
+
         # Device group
         dev_group = QGroupBox("Device")
         dev_form = QFormLayout(dev_group)
