@@ -370,20 +370,7 @@ class PageDSC_VHF(QWidget):
             gap_s = float(schedule.get("gap_s", 8.0))
             repeat_count = int(schedule.get("repeat", 5))
 
-            if mode == "repeat":
-                # Create gap (zeros)
-                gap_samples = int(fs_tx * gap_s)
-                gap = np.zeros(gap_samples, dtype=np.complex64)
-
-                # Concatenate frame + gap, repeated N times
-                iq_tx = np.tile(np.concatenate([iq_tx, gap]), repeat_count)
-            elif mode == "loop":
-                # Add gap inside the frame for loop mode
-                gap_samples = int(fs_tx * gap_s)
-                gap = np.zeros(gap_samples, dtype=np.complex64)
-                iq_tx = np.concatenate([iq_tx, gap])
-                # repeat_count will be handled by -R flag (infinite loop)
-                repeat_count = 0  # 0 = infinite loop
+            # NEW: No concatenation! Backend adds gap automatically.
 
             # 4. Save to temporary file
             temp_filename = generate_cf32_name(fs_tx, "temp_dsc_vhf", add_timestamp=False)
@@ -412,33 +399,19 @@ class PageDSC_VHF(QWidget):
             # Create HackRF backend
             self._hackrf_backend = HackRFTx()
 
-            # Run transmission
-            if mode == "loop":
-                # Loop mode: use -R flag for infinite repeat
-                self._hackrf_backend.run_loop(
-                    temp_path,
-                    fs_tx,
-                    center_hz,
-                    tx_gain_db,
-                    pa_enabled=pa_enable,
-                    if_offset_hz=if_offset_hz,
-                    freq_corr_hz=freq_corr_hz,
-                    mode="loop"
-                )
-            else:
-                # Repeat mode: file already contains N repetitions, play once without -R
-                self._hackrf_backend.run_loop(
-                    temp_path,
-                    fs_tx,
-                    center_hz,
-                    tx_gain_db,
-                    pa_enabled=pa_enable,
-                    if_offset_hz=if_offset_hz,
-                    freq_corr_hz=freq_corr_hz,
-                    mode="repeat",
-                    repeat=1,  # File already contains N repetitions
-                    gap_s=0.0  # Gap already built into file
-                )
+            # Run transmission (NEW API: backend adds gap)
+            tx_mode = "loop" if mode == "loop" else "once"
+            self._hackrf_backend.run_loop(
+                temp_path,
+                fs_tx,
+                target_hz,  # Use target_hz directly
+                tx_gain_db,
+                pa_enabled=pa_enable,
+                if_offset_hz=if_offset_hz,
+                freq_corr_hz=freq_corr_hz,
+                mode=tx_mode,
+                gap_s=gap_s  # Backend adds gap
+            )
 
             # Update UI
             self.btn_start.setEnabled(False)

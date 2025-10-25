@@ -295,6 +295,11 @@ class PageGenBasic(QWidget):
         freq_corr_hz = int(prof["device"]["freq_corr_hz"])
         tx_gain = int(prof["device"]["tx_gain_db"])
 
+        # Get schedule parameters
+        schedule = prof.get("schedule", {})
+        mode = schedule.get("mode", "loop")
+        gap_s = float(schedule.get("gap_s", 0.0))
+
         # Build IQ (генератор выдаёт чистый baseband на 0 Гц)
         if self.combo_mod.currentText().lower() == "none":
             iq = build_cw(prof, frame_s=1.0)
@@ -308,6 +313,7 @@ class PageGenBasic(QWidget):
             self._hrf = HackRFTx()
             try:
                 pa_enabled = self.pa_enable.isChecked()
+                tx_mode = "loop" if mode == "loop" else "once"
                 self._hrf.run_loop(
                     iq_path,
                     fs_tx=fs,
@@ -315,7 +321,9 @@ class PageGenBasic(QWidget):
                     tx_gain_db=tx_gain,
                     if_offset_hz=if_offset_hz,
                     freq_corr_hz=freq_corr_hz,
-                    pa_enabled=pa_enabled
+                    pa_enabled=pa_enabled,
+                    mode=tx_mode,
+                    gap_s=gap_s
                 )
             except Exception as e:
                 QMessageBox.critical(self, "HackRF start failed",
