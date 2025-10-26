@@ -21,7 +21,7 @@
     "type": "406"
   },
   "schedule": {
-    "mode": "repeat",
+    "mode": "loop",
     "gap_s": 5.0,
     "repeat": 5
   },
@@ -35,6 +35,6 @@
     "freq_corr_hz": 0
   },
   "_meta": {
-    "created_utc": "2025-10-22T06:37:59Z"
+    "created_utc": "2025-10-25T11:39:43Z"
   }
 }
